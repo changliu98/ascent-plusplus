@@ -258,14 +258,52 @@ fn rule_desugar_id_unification(rule: RuleNode) -> RuleNode {
     }
  }
 
- /// Extract function name and return type from matched!(func, Type)
- fn parse_matched_args(tokens: TokenStream) -> Result<(Expr, Type)> {
-    let parser = |input: ParseStream| -> Result<(Expr, Type)> {
-       let func_expr: Expr = input.parse()?;
-       input.parse::<Token![,]>()?;
-       let return_type: Type = input.parse()?;
-       Ok((func_expr, return_type))
+ /// Arguments to the matched! macro
+ enum MatchedMacroArgs {
+    /// New generic syntax: matched!(Type) or matched!(Path::<Type>)
+    /// Example: matched!(MatchedContext::<usize>)
+    Generic {
+       handler_expr: Expr,
+    },
+    /// Legacy syntax: matched!(func, Type)
+    /// Example: matched!(get_count, usize)
+    Legacy {
+       func_expr: Expr,
+       _return_type: Type,
+    },
+ }
+
+ /// Parse matched! macro arguments
+ /// Supports both:
+ /// - New syntax: matched!(MatchedContext::<Type>)
+ /// - Legacy syntax: matched!(func_name, Type)
+ fn parse_matched_args(tokens: TokenStream) -> Result<MatchedMacroArgs> {
+    let parser = |input: ParseStream| -> Result<MatchedMacroArgs> {
+       // Parse the first expression
+       let first_expr: Expr = input.parse()?;
+
+       // Check if there's a comma (legacy syntax)
+       if input.peek(Token![,]) {
+          // Legacy syntax: matched!(func, Type)
+          input.parse::<Token![,]>()?;
+          let return_type: Type = input.parse()?;
+          Ok(MatchedMacroArgs::Legacy {
+             func_expr: first_expr,
+             _return_type: return_type,
+          })
+       } else if input.is_empty() {
+          // New syntax: matched!(Type) or matched!(Path::<Type>)
+          Ok(MatchedMacroArgs::Generic {
+             handler_expr: first_expr,
+          })
+       } else {
+          Err(Error::new(
+             input.span(),
+             "expected end of input or comma in matched! macro"
+          ))
+       }
     };
+
     Parser::parse2(parser, tokens)
  }
 
@@ -302,7 +340,7 @@ fn replace_matched_in_expr(
         _ => return None,
     };
 
-    let (func_expr, _return_type) = parse_matched_args(expr_macro.mac.tokens.clone()).ok()?;
+    let matched_args = parse_matched_args(expr_macro.mac.tokens.clone()).ok()?;
 
     // Generate arrays of string literals
     let rel_names_lits: Vec<_> = rel_names.iter()
@@ -315,9 +353,35 @@ fn replace_matched_in_expr(
         .map(|s| quote!{#s})
         .collect();
 
-    // Generate the function call expression with all 5 arguments
-    let new_expr: Expr = parse_quote! {
-        #func_expr(&[#(#rel_names_lits),*], &[#(#head_vars_lits),*], &[#(#rel_names_lits),*], &[#(#rel_args_lits),*], #operator_prefix)
+    // Generate the function call expression based on which syntax is used
+    let new_expr: Expr = match matched_args {
+        MatchedMacroArgs::Generic { handler_expr } => {
+            // New syntax: call the handler's handle method
+            // matched!(MatchedContext::<T>) becomes MatchedContext::<T>::handle(...)
+            parse_quote! {
+                #handler_expr::handle(
+                    &[#(#rel_names_lits),*],
+                    &[#(#head_vars_lits),*],
+                    &[#(#rel_names_lits),*],
+                    &[#(#rel_args_lits),*],
+                    #operator_prefix
+                )
+            }
+        }
+        MatchedMacroArgs::Legacy { func_expr, _return_type: _ } => {
+            // Legacy syntax: call the function directly (backward compatible)
+            // matched!(func, Type) becomes func(...)
+            // Note: return_type is still ignored for backward compatibility
+            parse_quote! {
+                #func_expr(
+                    &[#(#rel_names_lits),*],
+                    &[#(#head_vars_lits),*],
+                    &[#(#rel_names_lits),*],
+                    &[#(#rel_args_lits),*],
+                    #operator_prefix
+                )
+            }
+        }
     };
 
     Some(new_expr)
