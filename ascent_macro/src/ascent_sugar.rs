@@ -349,8 +349,10 @@ fn rule_desugar_id_unification(rule: RuleNode) -> RuleNode {
 fn replace_matched_in_expr(
     expr: &Expr,
     rel_names: &[String],
+    head_rels: &[String],
     rel_args: &[Expr],
     head_vars: &[Ident],
+    bound_vars: &HashSet<String>,
     operator_prefix: &str
 ) -> Option<Expr> {
     if !is_matched_macro(expr) {
@@ -366,6 +368,9 @@ fn replace_matched_in_expr(
 
     // Generate arrays of string literals for relation names and head vars
     let rel_names_lits: Vec<_> = rel_names.iter()
+        .map(|s| quote!{#s})
+        .collect();
+    let head_rels_lits: Vec<_> = head_rels.iter()
         .map(|s| quote!{#s})
         .collect();
     let head_vars_lits: Vec<_> = head_vars.iter()
@@ -386,7 +391,11 @@ fn replace_matched_in_expr(
 
     let head_vars_values: Vec<_> = head_vars.iter()
         .map(|ident| {
-            quote! { format!("{:?}", #ident) }
+            if bound_vars.contains(&ident.to_string()) {
+                quote! { format!("{:?}", #ident) }
+            } else {
+                quote! { String::from("<unbound>") }
+            }
         })
         .collect();
 
@@ -398,6 +407,7 @@ fn replace_matched_in_expr(
             parse_quote! {
                 #handler_expr::handle(
                     &[#(#rel_names_lits),*],
+                    &[#(#head_rels_lits),*],
                     &[#(#head_vars_lits),*],
                     &[#(#rel_names_lits),*],
                     &[#(#rel_args_formatted),*],
@@ -414,6 +424,7 @@ fn replace_matched_in_expr(
             parse_quote! {
                 #func_expr(
                     &[#(#rel_names_lits),*],
+                    &[#(#head_rels_lits),*],
                     &[#(#head_vars_lits),*],
                     &[#(#rel_names_lits),*],
                     &[#(#rel_args_formatted),*],
@@ -444,15 +455,60 @@ fn rule_desugar_matched_calls(rule: RuleNode) -> Result<RuleNode> {
         })
         .collect();
 
+    // Extract head relation names
+    let head_rels: Vec<String> = rule.head_clauses.iter()
+        .flat_map(|hi| match hi {
+            HeadItemNode::HeadClause(hc) => Some(hc.rel.to_string()),
+            _ => None,
+        })
+        .collect();
+
     for (idx, body_item) in rule.body_items.iter().enumerate() {
         // Collect all relation clauses before this point
         let mut rel_names = vec![];
         let mut rel_args = vec![];
+        let mut bound_vars = HashSet::new();
 
         for prev_item in rule.body_items[..idx].iter() {
             if let BodyItemNode::Clause(cl) = prev_item {
                 rel_names.push(cl.rel.to_string());
                 rel_args.push(build_clause_args_expr(&cl.args));
+                
+                // Collect vars from clause args - conservative approximation
+                for arg in &cl.args {
+                    match arg {
+                        BodyClauseArg::Expr(e) => {
+                             for v in expr_get_vars(e) {
+                                 bound_vars.insert(v.to_string());
+                             }
+                        },
+                        BodyClauseArg::Pat(p) => {
+                             for v in pattern_get_vars(&p.pattern) {
+                                 bound_vars.insert(v.to_string());
+                             }
+                        }
+                    }
+                }
+            } else if let BodyItemNode::Generator(gen) = prev_item {
+                 for v in pattern_get_vars(&gen.pattern) {
+                     bound_vars.insert(v.to_string());
+                 }
+            } else if let BodyItemNode::Cond(cond) = prev_item {
+                match cond {
+                     CondClause::Let(cl) => {
+                         for v in pattern_get_vars(&cl.pattern) {
+                             bound_vars.insert(v.to_string());
+                         }
+                     },
+                     CondClause::IfLet(cl) => {
+                         for v in pattern_get_vars(&cl.pattern) {
+                             bound_vars.insert(v.to_string());
+                         }
+                     },
+                     _ => {}
+                }
+            } else {
+                 // Other items like Aggregation could bind variables too, but let's stick to common cases
             }
         }
 
@@ -463,7 +519,7 @@ fn rule_desugar_matched_calls(rule: RuleNode) -> Result<RuleNode> {
                 let pattern_str = quote!(#pattern).to_string();
                 let operator_prefix = format!("for {} in", pattern_str);
 
-                if let Some(new_expr) = replace_matched_in_expr(&gen.expr, &rel_names, &rel_args, &head_vars, &operator_prefix) {
+                if let Some(new_expr) = replace_matched_in_expr(&gen.expr, &rel_names, &head_rels, &rel_args, &head_vars, &bound_vars, &operator_prefix) {
                     let mut new_gen = gen.clone();
                     new_gen.expr = new_expr;
                     desugared_body_items.push(BodyItemNode::Generator(new_gen));
@@ -476,7 +532,7 @@ fn rule_desugar_matched_calls(rule: RuleNode) -> Result<RuleNode> {
             BodyItemNode::Cond(CondClause::If(if_clause)) if is_matched_macro(&if_clause.cond) => {
                 let operator_prefix = "if";
 
-                if let Some(new_expr) = replace_matched_in_expr(&if_clause.cond, &rel_names, &rel_args, &head_vars, operator_prefix) {
+                if let Some(new_expr) = replace_matched_in_expr(&if_clause.cond, &rel_names, &head_rels, &rel_args, &head_vars, &bound_vars, operator_prefix) {
                     let mut new_if_clause = if_clause.clone();
                     new_if_clause.cond = new_expr;
                     desugared_body_items.push(BodyItemNode::Cond(CondClause::If(new_if_clause)));
@@ -491,7 +547,7 @@ fn rule_desugar_matched_calls(rule: RuleNode) -> Result<RuleNode> {
                 let pattern_str = quote!(#pattern).to_string();
                 let operator_prefix = format!("if let {} =", pattern_str);
 
-                if let Some(new_expr) = replace_matched_in_expr(&if_let_clause.exp, &rel_names, &rel_args, &head_vars, &operator_prefix) {
+                if let Some(new_expr) = replace_matched_in_expr(&if_let_clause.exp, &rel_names, &head_rels, &rel_args, &head_vars, &bound_vars, &operator_prefix) {
                     let mut new_if_let_clause = if_let_clause.clone();
                     new_if_let_clause.exp = new_expr;
                     desugared_body_items.push(BodyItemNode::Cond(CondClause::IfLet(new_if_let_clause)));
@@ -506,7 +562,7 @@ fn rule_desugar_matched_calls(rule: RuleNode) -> Result<RuleNode> {
                 let pattern_str = quote!(#pattern).to_string();
                 let operator_prefix = format!("let {} =", pattern_str);
 
-                if let Some(new_expr) = replace_matched_in_expr(&let_clause.exp, &rel_names, &rel_args, &head_vars, &operator_prefix) {
+                if let Some(new_expr) = replace_matched_in_expr(&let_clause.exp, &rel_names, &head_rels, &rel_args, &head_vars, &bound_vars, &operator_prefix) {
                     let mut new_let_clause = let_clause.clone();
                     new_let_clause.exp = new_expr;
                     desugared_body_items.push(BodyItemNode::Cond(CondClause::Let(new_let_clause)));
@@ -523,9 +579,7 @@ fn rule_desugar_matched_calls(rule: RuleNode) -> Result<RuleNode> {
         head_clauses: rule.head_clauses,
         body_items: desugared_body_items,
     })
-}
-
- #[derive(Clone)]
+} #[derive(Clone)]
  struct GenSym(HashMap<String, u32>, fn(&str) -> String);
  impl GenSym {
     pub fn next(&mut self, ident: &str) -> String {

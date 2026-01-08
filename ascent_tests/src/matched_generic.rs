@@ -15,6 +15,7 @@ pub trait MatchedHandler {
     ///
     /// # Parameters
     /// - `rel_names`: Names of relations used in the rule body (before matched!)
+    /// - `head_rels`: Names of the relations in the rule head
     /// - `head_vars`: Variables extracted from the rule head
     /// - `rel_names2`: Duplicate of rel_names (for API compatibility)
     /// - `rel_args`: Arguments for each relation clause
@@ -23,6 +24,7 @@ pub trait MatchedHandler {
     /// - `head_var_values`: Runtime values of head variables
     fn handle(
         rel_names: &[&str],
+        head_rels: &[&str],
         head_vars: &[&str],
         rel_names2: &[&str],
         rel_args: &[&str],
@@ -51,6 +53,7 @@ impl<T> MatchedContext<T> {
     /// The return type T must implement MatchedHandler for MatchedContext<T>.
     pub fn handle(
         rel_names: &[&str],
+        head_rels: &[&str],
         head_vars: &[&str],
         rel_names2: &[&str],
         rel_args: &[&str],
@@ -62,7 +65,7 @@ impl<T> MatchedContext<T> {
         MatchedContext<T>: MatchedHandler<Output = T>,
     {
         <MatchedContext<T> as MatchedHandler>::handle(
-            rel_names, head_vars, rel_names2, rel_args, operator, rel_arg_values, head_var_values
+            rel_names, head_rels, head_vars, rel_names2, rel_args, operator, rel_arg_values, head_var_values
         )
     }
 }
@@ -76,6 +79,7 @@ impl<T> MatchedContext<T> {
 /// This function reconstructs the rule syntax from the metadata passed by the macro.
 fn construct_matched_string(
     rel_names: &[&str],
+    head_rels: &[&str],
     head_vars: &[&str],
     _rel_names2: &[&str],
     rel_args: &[&str],
@@ -84,13 +88,28 @@ fn construct_matched_string(
     let mut result = String::new();
 
     // Construct the rule head
-    result.push_str("result(");
-    if !head_vars.is_empty() {
-        result.push_str(&head_vars.join(", "));
+    if !head_rels.is_empty() {
+        for (i, rel) in head_rels.iter().enumerate() {
+            if i > 0 { result.push_str(", "); }
+            result.push_str(rel);
+            result.push('(');
+            if !head_vars.is_empty() {
+                result.push_str(&head_vars.join(", "));
+            } else {
+                result.push_str("...");
+            }
+            result.push(')');
+        }
     } else {
-        result.push_str("...");
+        result.push_str("result(");
+        if !head_vars.is_empty() {
+            result.push_str(&head_vars.join(", "));
+        } else {
+            result.push_str("...");
+        }
+        result.push(')');
     }
-    result.push_str(") <--\n");
+    result.push_str(" <--\n");
 
     // Add each relation clause
     for (name, args) in rel_names.iter().zip(rel_args.iter()) {
@@ -119,6 +138,7 @@ impl MatchedHandler for MatchedContext<usize> {
 
     fn handle(
         rel_names: &[&str],
+        _head_rels: &[&str],
         _head_vars: &[&str],
         _rel_names2: &[&str],
         _rel_args: &[&str],
@@ -136,6 +156,7 @@ impl MatchedHandler for MatchedContext<bool> {
 
     fn handle(
         rel_names: &[&str],
+        _head_rels: &[&str],
         _head_vars: &[&str],
         _rel_names2: &[&str],
         _rel_args: &[&str],
@@ -153,6 +174,7 @@ impl MatchedHandler for MatchedContext<Vec<(String, String)>> {
 
     fn handle(
         rel_names: &[&str],
+        _head_rels: &[&str],
         _head_vars: &[&str],
         _rel_names2: &[&str],
         rel_args: &[&str],
@@ -174,6 +196,7 @@ impl MatchedHandler for MatchedContext<Option<usize>> {
 
     fn handle(
         rel_names: &[&str],
+        _head_rels: &[&str],
         _head_vars: &[&str],
         _rel_names2: &[&str],
         _rel_args: &[&str],
@@ -195,6 +218,7 @@ impl MatchedHandler for MatchedContext<String> {
 
     fn handle(
         rel_names: &[&str],
+        head_rels: &[&str],
         head_vars: &[&str],
         rel_names2: &[&str],
         rel_args: &[&str],
@@ -202,7 +226,7 @@ impl MatchedHandler for MatchedContext<String> {
         _rel_arg_values: &[String],
         _head_var_values: &[String],
     ) -> String {
-        construct_matched_string(rel_names, head_vars, rel_names2, rel_args, operator)
+        construct_matched_string(rel_names, head_rels, head_vars, rel_names2, rel_args, operator)
     }
 }
 
@@ -212,6 +236,7 @@ impl MatchedHandler for MatchedContext<Vec<String>> {
 
     fn handle(
         rel_names: &[&str],
+        _head_rels: &[&str],
         _head_vars: &[&str],
         _rel_names2: &[&str],
         _rel_args: &[&str],
@@ -245,6 +270,7 @@ impl MatchedHandler for MatchedContext<ClauseAnalysis> {
 
     fn handle(
         rel_names: &[&str],
+        _head_rels: &[&str],
         _head_vars: &[&str],
         _rel_names2: &[&str],
         rel_args: &[&str],
@@ -273,6 +299,7 @@ mod tests {
     fn test_matched_context_usize() {
         let result = MatchedContext::<usize>::handle(
             &["testa", "testb"],
+            &["head"],
             &["x", "y"],
             &["testa", "testb"],
             &["a", "b, c"],
@@ -287,6 +314,7 @@ mod tests {
     fn test_matched_context_bool() {
         let result = MatchedContext::<bool>::handle(
             &["testa"],
+            &["head"],
             &[],
             &["testa"],
             &["a"],
@@ -298,7 +326,7 @@ mod tests {
 
         let result = MatchedContext::<bool>::handle(
             &[],
-            &[],
+            &["head"],
             &[],
             &[],
             "if",
@@ -312,6 +340,7 @@ mod tests {
     fn test_matched_context_vec_tuple() {
         let result = MatchedContext::<Vec<(String, String)>>::handle(
             &["testa", "testb"],
+            &["head"],
             &["name", "args"],
             &["testa", "testb"],
             &["obj1", "obj2, obj1"],
@@ -329,6 +358,7 @@ mod tests {
     fn test_matched_context_option() {
         let result = MatchedContext::<Option<usize>>::handle(
             &["testa", "testb"],
+            &[],
             &[],
             &["testa", "testb"],
             &["a", "b"],
@@ -354,6 +384,7 @@ mod tests {
     fn test_matched_context_string() {
         let result = MatchedContext::<String>::handle(
             &["testa"],
+            &["myhead"],
             &[],
             &["testa"],
             &["a"],
@@ -362,7 +393,7 @@ mod tests {
             &[],
         );
 
-        assert!(result.contains("result(...)"));
+        assert!(result.contains("myhead(...)"));
         assert!(result.contains("testa(a)"));
         assert!(result.contains("if matched!"));
     }
@@ -371,6 +402,7 @@ mod tests {
     fn test_matched_context_vec_string() {
         let result = MatchedContext::<Vec<String>>::handle(
             &["testa", "testb", "testc"],
+            &[],
             &[],
             &["testa", "testb", "testc"],
             &["a", "b", "c"],
@@ -386,6 +418,7 @@ mod tests {
     fn test_clause_analysis() {
         let result = MatchedContext::<ClauseAnalysis>::handle(
             &["testa", "testb"],
+            &["head"],
             &["x"],
             &["testa", "testb"],
             &["a", "b, c"],
@@ -406,6 +439,7 @@ mod tests {
         let result: usize = MatchedContext::handle(
             &["testa"],
             &[],
+            &[],
             &["testa"],
             &["a"],
             "if",
@@ -416,6 +450,7 @@ mod tests {
 
         let result: bool = MatchedContext::handle(
             &["testa"],
+            &[],
             &[],
             &["testa"],
             &["a"],
