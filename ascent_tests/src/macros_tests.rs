@@ -272,3 +272,85 @@ fn test_macro_in_macro8() {
    assert_rels_eq!(&prog.baz, &prog.baz_e);
    assert_rels_eq!(prog.baz2, prog.baz_e);
 }
+
+#[test]
+fn test_matched_macro() {
+   // Helper function for testing matched!
+   fn capture_matched(rel_names: &[&str], rel_args: &[&str]) -> Vec<(String, String)> {
+      rel_names.iter().zip(rel_args.iter())
+         .map(|(name, args)| (name.to_string(), args.to_string()))
+         .collect()
+   }
+
+   ascent! {
+      relation testa(i32);
+      relation testb(i32, i32);
+      relation result(String, String);
+
+      testa(1);
+      testb(2, 1);  // Changed from testb(2, 3) to match the pattern
+
+      result(name, args) <--
+         testa(obj1),
+         testb(obj2, obj1),
+         for (name, args) in matched!(capture_matched, Vec<(String, String)>);
+   }
+
+   let mut prog = AscentProgram::default();
+   prog.run();
+
+   println!("result: {:?}", prog.result);
+   assert_eq!(prog.result.len(), 2);
+   assert!(prog.result.contains(&("testa".to_string(), "obj1".to_string())));
+   assert!(prog.result.contains(&("testb".to_string(), "obj2, obj1".to_string())));
+}
+
+#[test]
+fn test_matched_macro_empty() {
+   // Test matched! with no preceding clauses
+   fn empty_matched(rel_names: &[&str], rel_args: &[&str]) -> Vec<usize> {
+      vec![rel_names.len()]
+   }
+
+   ascent! {
+      relation result(usize);
+
+      result(count) <--
+         for count in matched!(empty_matched, Vec<usize>);
+   }
+
+   let mut prog = AscentProgram::default();
+   prog.run();
+
+   println!("result: {:?}", prog.result);
+   assert_rels_eq!(prog.result, [(0,)]);
+}
+
+#[test]
+fn test_matched_macro_multiple() {
+   // Test multiple matched! calls in same rule
+   fn count_clauses(rel_names: &[&str], _rel_args: &[&str]) -> Vec<usize> {
+      vec![rel_names.len()]
+   }
+
+   ascent! {
+      relation testa(i32);
+      relation testb(i32);
+      relation result(usize, usize);
+
+      testa(1);
+      testb(2);
+
+      result(count1, count2) <--
+         testa(a),
+         for count1 in matched!(count_clauses, Vec<usize>),
+         testb(b),
+         for count2 in matched!(count_clauses, Vec<usize>);
+   }
+
+   let mut prog = AscentProgram::default();
+   prog.run();
+
+   println!("result: {:?}", prog.result);
+   assert_rels_eq!(prog.result, [(1, 2)]);
+}

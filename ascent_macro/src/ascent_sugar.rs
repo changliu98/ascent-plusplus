@@ -3,8 +3,8 @@ extern crate proc_macro;
 use proc_macro2::{Span, TokenStream};
 use syn::token::Comma;
 use syn::{
-parse2, punctuated::Punctuated, spanned::Spanned, Error, Expr, ExprMacro,
-    Ident, Result, Token, Type, 
+parse2, parse_quote, punctuated::Punctuated, spanned::Spanned, Error, Expr, ExprMacro,
+    Ident, Result, Token, Type,
 };
 use syn::parse::{Parse, ParseStream, Parser};
 use core::panic;
@@ -248,7 +248,96 @@ fn rule_desugar_id_unification(rule: RuleNode) -> RuleNode {
     }
     RuleNode{head_clauses: rule.head_clauses.clone(), body_items: desugared_body_items}
  }
- 
+
+ /// Check if an expression is a matched! macro call
+ fn is_matched_macro(expr: &Expr) -> bool {
+    if let Expr::Macro(em) = expr {
+       em.mac.path.is_ident("matched")
+    } else {
+       false
+    }
+ }
+
+ /// Extract function name and return type from matched!(func, Type)
+ fn parse_matched_args(tokens: TokenStream) -> Result<(Expr, Type)> {
+    let parser = |input: ParseStream| -> Result<(Expr, Type)> {
+       let func_expr: Expr = input.parse()?;
+       input.parse::<Token![,]>()?;
+       let return_type: Type = input.parse()?;
+       Ok((func_expr, return_type))
+    };
+    Parser::parse2(parser, tokens)
+ }
+
+ /// Format clause arguments as comma-separated string
+ fn format_clause_args(args: &Punctuated<BodyClauseArg, Comma>) -> String {
+    args.iter()
+       .map(|arg| match arg {
+          BodyClauseArg::Expr(e) => quote!(#e).to_string(),
+          BodyClauseArg::Pat(p) => {
+             // For patterns, convert the pattern field to token stream
+             let pat = &p.pattern;
+             quote!(#pat).to_string()
+          },
+       })
+       .collect::<Vec<_>>()
+       .join(", ")
+ }
+
+ /// Desugar matched! calls in rule body items
+ fn rule_desugar_matched_calls(rule: RuleNode) -> Result<RuleNode> {
+    let mut desugared_body_items = vec![];
+
+    for (idx, body_item) in rule.body_items.iter().enumerate() {
+       match body_item {
+          BodyItemNode::Generator(gen) if is_matched_macro(&gen.expr) => {
+             // Extract matched! arguments
+             let expr_macro = match &gen.expr {
+                Expr::Macro(em) => em,
+                _ => unreachable!("is_matched_macro returned true for non-macro"),
+             };
+
+             let (func_expr, _return_type) = parse_matched_args(expr_macro.mac.tokens.clone())?;
+
+             // Collect all relation clauses before this point
+             let mut rel_names = vec![];
+             let mut rel_args = vec![];
+
+             for prev_item in rule.body_items[..idx].iter() {
+                if let BodyItemNode::Clause(cl) = prev_item {
+                   rel_names.push(cl.rel.to_string());
+                   rel_args.push(format_clause_args(&cl.args));
+                }
+             }
+
+             // Generate arrays of string literals
+             let rel_names_lits: Vec<_> = rel_names.iter()
+                .map(|s| quote!{#s})
+                .collect();
+             let rel_args_lits: Vec<_> = rel_args.iter()
+                .map(|s| quote!{#s})
+                .collect();
+
+             // Generate the function call expression
+             let new_expr: Expr = parse_quote! {
+                #func_expr(&[#(#rel_names_lits),*], &[#(#rel_args_lits),*])
+             };
+
+             // Create new generator with replaced expression
+             let mut new_gen = gen.clone();
+             new_gen.expr = new_expr;
+             desugared_body_items.push(BodyItemNode::Generator(new_gen));
+          }
+          _ => desugared_body_items.push(body_item.clone()),
+       }
+    }
+
+    Ok(RuleNode {
+       head_clauses: rule.head_clauses,
+       body_items: desugared_body_items,
+    })
+ }
+
  #[derive(Clone)]
  struct GenSym(HashMap<String, u32>, fn(&str) -> String);
  impl GenSym {
@@ -899,11 +988,17 @@ fn desugar_subquery_runs(rules: &Vec<RuleNode>) -> Vec<RuleNode> {
        prog.relations.extend(expanded_prog.relations);
     }
  
-    let mut rules_macro_expanded = 
+    let mut rules_macro_expanded =
        prog.rules.into_iter()
        .map(|r| rule_expand_macro_invocations(r, &macros))
        .collect::<Result<Vec<_>>>()?;
-     rules_macro_expanded = desugar_subquery_runs(&rules_macro_expanded);
+
+    // Desugar matched! calls early, before other transformations
+    rules_macro_expanded = rules_macro_expanded.into_iter()
+       .map(rule_desugar_matched_calls)
+       .collect::<Result<Vec<_>>>()?;
+
+    rules_macro_expanded = desugar_subquery_runs(&rules_macro_expanded);
  
     let relation_from_functions = prog.functions.iter()
        .flat_map(desugar_function)
