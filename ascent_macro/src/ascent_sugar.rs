@@ -350,7 +350,7 @@ fn replace_matched_in_expr(
     expr: &Expr,
     rel_names: &[String],
     rel_args: &[Expr],
-    head_vars: &[String],
+    head_vars: &[Ident],
     operator_prefix: &str
 ) -> Option<Expr> {
     if !is_matched_macro(expr) {
@@ -369,12 +369,25 @@ fn replace_matched_in_expr(
         .map(|s| quote!{#s})
         .collect();
     let head_vars_lits: Vec<_> = head_vars.iter()
-        .map(|s| quote!{#s})
+        .map(|i| {
+            let s = i.to_string();
+            quote!{#s}
+        })
         .collect();
 
     // Generate code that formats each argument tuple at runtime using Debug
     let rel_args_formatted: Vec<_> = rel_args.iter()
         .map(|arg_expr| quote!{ &format!("{:?}", #arg_expr) })
+        .collect();
+
+    let rel_args_values: Vec<_> = rel_args.iter()
+        .map(|arg_expr| quote!{ format!("{:?}", #arg_expr) })
+        .collect();
+
+    let head_vars_values: Vec<_> = head_vars.iter()
+        .map(|ident| {
+            quote! { format!("{:?}", #ident) }
+        })
         .collect();
 
     // Generate the function call expression based on which syntax is used
@@ -388,7 +401,9 @@ fn replace_matched_in_expr(
                     &[#(#head_vars_lits),*],
                     &[#(#rel_names_lits),*],
                     &[#(#rel_args_formatted),*],
-                    #operator_prefix
+                    #operator_prefix,
+                    &[#(#rel_args_values),*],
+                    &[#(#head_vars_values),*]
                 )
             }
         }
@@ -402,7 +417,9 @@ fn replace_matched_in_expr(
                     &[#(#head_vars_lits),*],
                     &[#(#rel_names_lits),*],
                     &[#(#rel_args_formatted),*],
-                    #operator_prefix
+                    #operator_prefix,
+                    &[#(#rel_args_values),*],
+                    &[#(#head_vars_values),*]
                 )
             }
         }
@@ -416,11 +433,11 @@ fn rule_desugar_matched_calls(rule: RuleNode) -> Result<RuleNode> {
     let mut desugared_body_items = vec![];
 
     // Extract head variables from all head clauses
-    let head_vars: Vec<String> = rule.head_clauses.iter()
+    let head_vars: Vec<Ident> = rule.head_clauses.iter()
         .flat_map(|hi| match hi {
             HeadItemNode::HeadClause(hc) => {
                 hc.args.iter()
-                    .filter_map(|arg| expr_to_ident(arg).map(|i| i.to_string()))
+                    .filter_map(|arg| expr_to_ident(arg))
                     .collect::<Vec<_>>()
             },
             _ => vec![],

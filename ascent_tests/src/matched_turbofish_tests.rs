@@ -163,7 +163,15 @@ fn test_matched_turbofish_vec_string() {
 #[test]
 fn test_matched_mixed_old_and_new_syntax() {
     // Test that old and new syntax can coexist
-    fn old_style_count(rel_names: &[&str], _: &[&str], _: &[&str], _: &[&str], _: &str) -> usize {
+fn old_style_count(
+    rel_names: &[&str],
+    _: &[&str],
+    _: &[&str],
+    _: &[&str],
+    _: &str,
+    _: &[String],
+    _: &[String],
+) -> usize {
         rel_names.len()
     }
 

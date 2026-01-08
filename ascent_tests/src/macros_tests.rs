@@ -276,7 +276,15 @@ fn test_macro_in_macro8() {
 #[test]
 fn test_matched_macro() {
    // Helper function for testing matched! with new signature
-   fn capture_matched(rel_names: &[&str], head_vars: &[&str], rel_names2: &[&str], rel_args: &[&str], operator: &str) -> Vec<(String, String)> {
+   fn capture_matched(
+      rel_names: &[&str],
+      head_vars: &[&str],
+      rel_names2: &[&str],
+      rel_args: &[&str],
+      operator: &str,
+      _rel_arg_values: &[String],
+      _head_var_values: &[String],
+   ) -> Vec<(String, String)> {
       // Verify we received the correct arguments
       assert_eq!(rel_names, rel_names2); // Should be the same
       assert_eq!(head_vars, &["name", "args"]);

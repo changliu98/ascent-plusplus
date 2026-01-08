@@ -19,12 +19,16 @@ pub trait MatchedHandler {
     /// - `rel_names2`: Duplicate of rel_names (for API compatibility)
     /// - `rel_args`: Arguments for each relation clause
     /// - `operator`: The operator context (e.g., "for x in", "if", "let x =")
+    /// - `rel_arg_values`: Runtime values of relation arguments
+    /// - `head_var_values`: Runtime values of head variables
     fn handle(
         rel_names: &[&str],
         head_vars: &[&str],
         rel_names2: &[&str],
         rel_args: &[&str],
         operator: &str,
+        rel_arg_values: &[String],
+        head_var_values: &[String],
     ) -> Self::Output;
 }
 
@@ -51,12 +55,14 @@ impl<T> MatchedContext<T> {
         rel_names2: &[&str],
         rel_args: &[&str],
         operator: &str,
+        rel_arg_values: &[String],
+        head_var_values: &[String],
     ) -> T
     where
         MatchedContext<T>: MatchedHandler<Output = T>,
     {
         <MatchedContext<T> as MatchedHandler>::handle(
-            rel_names, head_vars, rel_names2, rel_args, operator
+            rel_names, head_vars, rel_names2, rel_args, operator, rel_arg_values, head_var_values
         )
     }
 }
@@ -117,6 +123,8 @@ impl MatchedHandler for MatchedContext<usize> {
         _rel_names2: &[&str],
         _rel_args: &[&str],
         _operator: &str,
+        _rel_arg_values: &[String],
+        _head_var_values: &[String],
     ) -> usize {
         rel_names.len()
     }
@@ -132,6 +140,8 @@ impl MatchedHandler for MatchedContext<bool> {
         _rel_names2: &[&str],
         _rel_args: &[&str],
         _operator: &str,
+        _rel_arg_values: &[String],
+        _head_var_values: &[String],
     ) -> bool {
         !rel_names.is_empty()
     }
@@ -147,6 +157,8 @@ impl MatchedHandler for MatchedContext<Vec<(String, String)>> {
         _rel_names2: &[&str],
         rel_args: &[&str],
         _operator: &str,
+        _rel_arg_values: &[String],
+        _head_var_values: &[String],
     ) -> Vec<(String, String)> {
         rel_names
             .iter()
@@ -166,6 +178,8 @@ impl MatchedHandler for MatchedContext<Option<usize>> {
         _rel_names2: &[&str],
         _rel_args: &[&str],
         _operator: &str,
+        _rel_arg_values: &[String],
+        _head_var_values: &[String],
     ) -> Option<usize> {
         if rel_names.is_empty() {
             None
@@ -185,6 +199,8 @@ impl MatchedHandler for MatchedContext<String> {
         rel_names2: &[&str],
         rel_args: &[&str],
         operator: &str,
+        _rel_arg_values: &[String],
+        _head_var_values: &[String],
     ) -> String {
         construct_matched_string(rel_names, head_vars, rel_names2, rel_args, operator)
     }
@@ -200,6 +216,8 @@ impl MatchedHandler for MatchedContext<Vec<String>> {
         _rel_names2: &[&str],
         _rel_args: &[&str],
         _operator: &str,
+        _rel_arg_values: &[String],
+        _head_var_values: &[String],
     ) -> Vec<String> {
         rel_names.iter().map(|s| s.to_string()).collect()
     }
@@ -231,6 +249,8 @@ impl MatchedHandler for MatchedContext<ClauseAnalysis> {
         _rel_names2: &[&str],
         rel_args: &[&str],
         operator: &str,
+        _rel_arg_values: &[String],
+        _head_var_values: &[String],
     ) -> ClauseAnalysis {
         ClauseAnalysis {
             count: rel_names.len(),
@@ -257,6 +277,8 @@ mod tests {
             &["testa", "testb"],
             &["a", "b, c"],
             "if",
+            &[],
+            &[],
         );
         assert_eq!(result, 2);
     }
@@ -269,6 +291,8 @@ mod tests {
             &["testa"],
             &["a"],
             "if",
+            &[],
+            &[],
         );
         assert_eq!(result, true);
 
@@ -278,6 +302,8 @@ mod tests {
             &[],
             &[],
             "if",
+            &[],
+            &[],
         );
         assert_eq!(result, false);
     }
@@ -290,6 +316,8 @@ mod tests {
             &["testa", "testb"],
             &["obj1", "obj2, obj1"],
             "for (name, args) in",
+            &[],
+            &[],
         );
 
         assert_eq!(result.len(), 2);
@@ -305,6 +333,8 @@ mod tests {
             &["testa", "testb"],
             &["a", "b"],
             "if let Some(count) =",
+            &[],
+            &[],
         );
         assert_eq!(result, Some(2));
 
@@ -314,6 +344,8 @@ mod tests {
             &[],
             &[],
             "if let Some(count) =",
+            &[],
+            &[],
         );
         assert_eq!(result, None);
     }
@@ -326,6 +358,8 @@ mod tests {
             &["testa"],
             &["a"],
             "if",
+            &[],
+            &[],
         );
 
         assert!(result.contains("result(...)"));
@@ -341,6 +375,8 @@ mod tests {
             &["testa", "testb", "testc"],
             &["a", "b", "c"],
             "if",
+            &[],
+            &[],
         );
 
         assert_eq!(result, vec!["testa", "testb", "testc"]);
@@ -354,6 +390,8 @@ mod tests {
             &["testa", "testb"],
             &["a", "b, c"],
             "let x =",
+            &[],
+            &[],
         );
 
         assert_eq!(result.count, 2);
@@ -371,6 +409,8 @@ mod tests {
             &["testa"],
             &["a"],
             "if",
+            &[],
+            &[],
         );
         assert_eq!(result, 1);
 
@@ -380,6 +420,8 @@ mod tests {
             &["testa"],
             &["a"],
             "if",
+            &[],
+            &[]
         );
         assert_eq!(result, true);
     }
