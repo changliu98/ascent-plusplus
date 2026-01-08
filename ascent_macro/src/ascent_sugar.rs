@@ -307,19 +307,41 @@ fn rule_desugar_id_unification(rule: RuleNode) -> RuleNode {
     Parser::parse2(parser, tokens)
  }
 
- /// Format clause arguments as comma-separated string
- fn format_clause_args(args: &Punctuated<BodyClauseArg, Comma>) -> String {
-    args.iter()
+ /// Build an expression that represents the clause arguments as a tuple
+ /// Returns an Expr that will evaluate to a tuple of the argument values at runtime
+ fn build_clause_args_expr(args: &Punctuated<BodyClauseArg, Comma>) -> Expr {
+    let arg_exprs: Vec<Expr> = args.iter()
        .map(|arg| match arg {
-          BodyClauseArg::Expr(e) => quote!(#e).to_string(),
+          BodyClauseArg::Expr(e) => e.clone(),
           BodyClauseArg::Pat(p) => {
-             // For patterns, convert the pattern field to token stream
-             let pat = &p.pattern;
-             quote!(#pat).to_string()
+             // For patterns, extract bound variables from the pattern
+             // Pattern args should be desugared before matched! calls, but if we encounter them,
+             // we'll extract variables using pattern_get_vars and create a tuple of them
+             let vars = pattern_get_vars(&p.pattern);
+             if vars.is_empty() {
+                // No variables bound, return unit
+                parse_quote!{ () }
+             } else if vars.len() == 1 {
+                let var = &vars[0];
+                parse_quote!{ (#var,) }
+             } else {
+                parse_quote!{ (#(#vars),*) }
+             }
           },
        })
-       .collect::<Vec<_>>()
-       .join(", ")
+       .collect();
+
+    // Create a tuple expression of all arguments
+    if arg_exprs.is_empty() {
+       parse_quote!{ () }
+    } else if arg_exprs.len() == 1 {
+       // Single argument: create a 1-tuple
+       let arg = &arg_exprs[0];
+       parse_quote!{ (#arg,) }
+    } else {
+       // Multiple arguments: create a tuple
+       parse_quote!{ (#(#arg_exprs),*) }
+    }
  }
 
 /// Helper function to replace matched! macro in an expression
@@ -327,7 +349,7 @@ fn rule_desugar_id_unification(rule: RuleNode) -> RuleNode {
 fn replace_matched_in_expr(
     expr: &Expr,
     rel_names: &[String],
-    rel_args: &[String],
+    rel_args: &[Expr],
     head_vars: &[String],
     operator_prefix: &str
 ) -> Option<Expr> {
@@ -342,15 +364,17 @@ fn replace_matched_in_expr(
 
     let matched_args = parse_matched_args(expr_macro.mac.tokens.clone()).ok()?;
 
-    // Generate arrays of string literals
+    // Generate arrays of string literals for relation names and head vars
     let rel_names_lits: Vec<_> = rel_names.iter()
-        .map(|s| quote!{#s})
-        .collect();
-    let rel_args_lits: Vec<_> = rel_args.iter()
         .map(|s| quote!{#s})
         .collect();
     let head_vars_lits: Vec<_> = head_vars.iter()
         .map(|s| quote!{#s})
+        .collect();
+
+    // Generate code that formats each argument tuple at runtime using Debug
+    let rel_args_formatted: Vec<_> = rel_args.iter()
+        .map(|arg_expr| quote!{ &format!("{:?}", #arg_expr) })
         .collect();
 
     // Generate the function call expression based on which syntax is used
@@ -363,7 +387,7 @@ fn replace_matched_in_expr(
                     &[#(#rel_names_lits),*],
                     &[#(#head_vars_lits),*],
                     &[#(#rel_names_lits),*],
-                    &[#(#rel_args_lits),*],
+                    &[#(#rel_args_formatted),*],
                     #operator_prefix
                 )
             }
@@ -377,7 +401,7 @@ fn replace_matched_in_expr(
                     &[#(#rel_names_lits),*],
                     &[#(#head_vars_lits),*],
                     &[#(#rel_names_lits),*],
-                    &[#(#rel_args_lits),*],
+                    &[#(#rel_args_formatted),*],
                     #operator_prefix
                 )
             }
@@ -411,7 +435,7 @@ fn rule_desugar_matched_calls(rule: RuleNode) -> Result<RuleNode> {
         for prev_item in rule.body_items[..idx].iter() {
             if let BodyItemNode::Clause(cl) = prev_item {
                 rel_names.push(cl.rel.to_string());
-                rel_args.push(format_clause_args(&cl.args));
+                rel_args.push(build_clause_args_expr(&cl.args));
             }
         }
 

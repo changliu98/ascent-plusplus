@@ -306,8 +306,9 @@ fn test_matched_macro() {
 
    println!("result: {:?}", prog.result);
    assert_eq!(prog.result.len(), 2);
-   assert!(prog.result.contains(&("testa".to_string(), "obj1".to_string())));
-   assert!(prog.result.contains(&("testb".to_string(), "obj2, obj1".to_string())));
+   // Now we get actual runtime values formatted with Debug, not variable names
+   assert!(prog.result.contains(&("testa".to_string(), "(1,)".to_string())));
+   assert!(prog.result.contains(&("testb".to_string(), "(2, 1)".to_string())));
 }
 
 #[test]

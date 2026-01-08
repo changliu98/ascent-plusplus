@@ -71,8 +71,9 @@ fn test_matched_turbofish_vec_tuple() {
 
     println!("result: {:?}", prog.result);
     assert_eq!(prog.result.len(), 2);
-    assert!(prog.result.contains(&("testa".to_string(), "obj1".to_string())));
-    assert!(prog.result.contains(&("testb".to_string(), "obj2, obj1".to_string())));
+    // Now we get actual runtime values formatted with Debug, not variable names
+    assert!(prog.result.contains(&("testa".to_string(), "(1,)".to_string())));
+    assert!(prog.result.contains(&("testb".to_string(), "(2, 1)".to_string())));
 }
 
 #[test]
@@ -123,8 +124,9 @@ fn test_matched_turbofish_string() {
 
     let rule_str = prog.result.iter().next().unwrap().0.clone();
     assert!(rule_str.contains("result(rule_str)"));
-    assert!(rule_str.contains("testa(a)"));
-    assert!(rule_str.contains("testb(b, a)"));
+    // Now we get runtime values formatted with Debug
+    assert!(rule_str.contains("testa((1,))"));
+    assert!(rule_str.contains("testb((2, 1))"));
     assert!(rule_str.contains("let rule_str = matched!"));
 }
 
