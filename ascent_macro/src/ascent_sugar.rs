@@ -284,59 +284,141 @@ fn rule_desugar_id_unification(rule: RuleNode) -> RuleNode {
        .join(", ")
  }
 
- /// Desugar matched! calls in rule body items
- fn rule_desugar_matched_calls(rule: RuleNode) -> Result<RuleNode> {
+/// Helper function to replace matched! macro in an expression
+/// Returns the new expression with matched! replaced, or None if no matched! found
+fn replace_matched_in_expr(
+    expr: &Expr,
+    rel_names: &[String],
+    rel_args: &[String],
+    head_vars: &[String],
+    operator_prefix: &str
+) -> Option<Expr> {
+    if !is_matched_macro(expr) {
+        return None;
+    }
+
+    let expr_macro = match expr {
+        Expr::Macro(em) => em,
+        _ => return None,
+    };
+
+    let (func_expr, _return_type) = parse_matched_args(expr_macro.mac.tokens.clone()).ok()?;
+
+    // Generate arrays of string literals
+    let rel_names_lits: Vec<_> = rel_names.iter()
+        .map(|s| quote!{#s})
+        .collect();
+    let rel_args_lits: Vec<_> = rel_args.iter()
+        .map(|s| quote!{#s})
+        .collect();
+    let head_vars_lits: Vec<_> = head_vars.iter()
+        .map(|s| quote!{#s})
+        .collect();
+
+    // Generate the function call expression with all 5 arguments
+    let new_expr: Expr = parse_quote! {
+        #func_expr(&[#(#rel_names_lits),*], &[#(#head_vars_lits),*], &[#(#rel_names_lits),*], &[#(#rel_args_lits),*], #operator_prefix)
+    };
+
+    Some(new_expr)
+}
+
+/// Desugar matched! calls in rule body items
+fn rule_desugar_matched_calls(rule: RuleNode) -> Result<RuleNode> {
     let mut desugared_body_items = vec![];
 
+    // Extract head variables from all head clauses
+    let head_vars: Vec<String> = rule.head_clauses.iter()
+        .flat_map(|hi| match hi {
+            HeadItemNode::HeadClause(hc) => {
+                hc.args.iter()
+                    .filter_map(|arg| expr_to_ident(arg).map(|i| i.to_string()))
+                    .collect::<Vec<_>>()
+            },
+            _ => vec![],
+        })
+        .collect();
+
     for (idx, body_item) in rule.body_items.iter().enumerate() {
-       match body_item {
-          BodyItemNode::Generator(gen) if is_matched_macro(&gen.expr) => {
-             // Extract matched! arguments
-             let expr_macro = match &gen.expr {
-                Expr::Macro(em) => em,
-                _ => unreachable!("is_matched_macro returned true for non-macro"),
-             };
+        // Collect all relation clauses before this point
+        let mut rel_names = vec![];
+        let mut rel_args = vec![];
 
-             let (func_expr, _return_type) = parse_matched_args(expr_macro.mac.tokens.clone())?;
+        for prev_item in rule.body_items[..idx].iter() {
+            if let BodyItemNode::Clause(cl) = prev_item {
+                rel_names.push(cl.rel.to_string());
+                rel_args.push(format_clause_args(&cl.args));
+            }
+        }
 
-             // Collect all relation clauses before this point
-             let mut rel_names = vec![];
-             let mut rel_args = vec![];
+        match body_item {
+            // Handle: for x in matched!(...)
+            BodyItemNode::Generator(gen) if is_matched_macro(&gen.expr) => {
+                let pattern = &gen.pattern;
+                let pattern_str = quote!(#pattern).to_string();
+                let operator_prefix = format!("for {} in", pattern_str);
 
-             for prev_item in rule.body_items[..idx].iter() {
-                if let BodyItemNode::Clause(cl) = prev_item {
-                   rel_names.push(cl.rel.to_string());
-                   rel_args.push(format_clause_args(&cl.args));
+                if let Some(new_expr) = replace_matched_in_expr(&gen.expr, &rel_names, &rel_args, &head_vars, &operator_prefix) {
+                    let mut new_gen = gen.clone();
+                    new_gen.expr = new_expr;
+                    desugared_body_items.push(BodyItemNode::Generator(new_gen));
+                } else {
+                    desugared_body_items.push(body_item.clone());
                 }
-             }
+            }
 
-             // Generate arrays of string literals
-             let rel_names_lits: Vec<_> = rel_names.iter()
-                .map(|s| quote!{#s})
-                .collect();
-             let rel_args_lits: Vec<_> = rel_args.iter()
-                .map(|s| quote!{#s})
-                .collect();
+            // Handle: if matched!(...)
+            BodyItemNode::Cond(CondClause::If(if_clause)) if is_matched_macro(&if_clause.cond) => {
+                let operator_prefix = "if";
 
-             // Generate the function call expression
-             let new_expr: Expr = parse_quote! {
-                #func_expr(&[#(#rel_names_lits),*], &[#(#rel_args_lits),*])
-             };
+                if let Some(new_expr) = replace_matched_in_expr(&if_clause.cond, &rel_names, &rel_args, &head_vars, operator_prefix) {
+                    let mut new_if_clause = if_clause.clone();
+                    new_if_clause.cond = new_expr;
+                    desugared_body_items.push(BodyItemNode::Cond(CondClause::If(new_if_clause)));
+                } else {
+                    desugared_body_items.push(body_item.clone());
+                }
+            }
 
-             // Create new generator with replaced expression
-             let mut new_gen = gen.clone();
-             new_gen.expr = new_expr;
-             desugared_body_items.push(BodyItemNode::Generator(new_gen));
-          }
-          _ => desugared_body_items.push(body_item.clone()),
-       }
+            // Handle: if let pattern = matched!(...)
+            BodyItemNode::Cond(CondClause::IfLet(if_let_clause)) if is_matched_macro(&if_let_clause.exp) => {
+                let pattern = &if_let_clause.pattern;
+                let pattern_str = quote!(#pattern).to_string();
+                let operator_prefix = format!("if let {} =", pattern_str);
+
+                if let Some(new_expr) = replace_matched_in_expr(&if_let_clause.exp, &rel_names, &rel_args, &head_vars, &operator_prefix) {
+                    let mut new_if_let_clause = if_let_clause.clone();
+                    new_if_let_clause.exp = new_expr;
+                    desugared_body_items.push(BodyItemNode::Cond(CondClause::IfLet(new_if_let_clause)));
+                } else {
+                    desugared_body_items.push(body_item.clone());
+                }
+            }
+
+            // Handle: let pattern = matched!(...)
+            BodyItemNode::Cond(CondClause::Let(let_clause)) if is_matched_macro(&let_clause.exp) => {
+                let pattern = &let_clause.pattern;
+                let pattern_str = quote!(#pattern).to_string();
+                let operator_prefix = format!("let {} =", pattern_str);
+
+                if let Some(new_expr) = replace_matched_in_expr(&let_clause.exp, &rel_names, &rel_args, &head_vars, &operator_prefix) {
+                    let mut new_let_clause = let_clause.clone();
+                    new_let_clause.exp = new_expr;
+                    desugared_body_items.push(BodyItemNode::Cond(CondClause::Let(new_let_clause)));
+                } else {
+                    desugared_body_items.push(body_item.clone());
+                }
+            }
+
+            _ => desugared_body_items.push(body_item.clone()),
+        }
     }
 
     Ok(RuleNode {
-       head_clauses: rule.head_clauses,
-       body_items: desugared_body_items,
+        head_clauses: rule.head_clauses,
+        body_items: desugared_body_items,
     })
- }
+}
 
  #[derive(Clone)]
  struct GenSym(HashMap<String, u32>, fn(&str) -> String);

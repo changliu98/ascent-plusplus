@@ -275,8 +275,13 @@ fn test_macro_in_macro8() {
 
 #[test]
 fn test_matched_macro() {
-   // Helper function for testing matched!
-   fn capture_matched(rel_names: &[&str], rel_args: &[&str]) -> Vec<(String, String)> {
+   // Helper function for testing matched! with new signature
+   fn capture_matched(rel_names: &[&str], head_vars: &[&str], rel_names2: &[&str], rel_args: &[&str], operator: &str) -> Vec<(String, String)> {
+      // Verify we received the correct arguments
+      assert_eq!(rel_names, rel_names2); // Should be the same
+      assert_eq!(head_vars, &["name", "args"]);
+      assert_eq!(operator, "for (name, args) in");
+
       rel_names.iter().zip(rel_args.iter())
          .map(|(name, args)| (name.to_string(), args.to_string()))
          .collect()
@@ -308,7 +313,9 @@ fn test_matched_macro() {
 #[test]
 fn test_matched_macro_empty() {
    // Test matched! with no preceding clauses
-   fn empty_matched(rel_names: &[&str], rel_args: &[&str]) -> Vec<usize> {
+   fn empty_matched(rel_names: &[&str], head_vars: &[&str], rel_names2: &[&str], rel_args: &[&str], operator: &str) -> Vec<usize> {
+      assert_eq!(head_vars, &["count"]);
+      assert_eq!(operator, "for count in");
       vec![rel_names.len()]
    }
 
@@ -329,7 +336,9 @@ fn test_matched_macro_empty() {
 #[test]
 fn test_matched_macro_multiple() {
    // Test multiple matched! calls in same rule
-   fn count_clauses(rel_names: &[&str], _rel_args: &[&str]) -> Vec<usize> {
+   fn count_clauses(rel_names: &[&str], head_vars: &[&str], rel_names2: &[&str], _rel_args: &[&str], operator: &str) -> Vec<usize> {
+      // For this test we just return the count, but verify head vars are passed
+      assert_eq!(head_vars, &["count1", "count2"]);
       vec![rel_names.len()]
    }
 
@@ -353,4 +362,97 @@ fn test_matched_macro_multiple() {
 
    println!("result: {:?}", prog.result);
    assert_rels_eq!(prog.result, [(1, 2)]);
+}
+
+#[test]
+fn test_matched_macro_if() {
+   // Test matched! in 'if' context
+   fn check_has_clauses(rel_names: &[&str], head_vars: &[&str], rel_names2: &[&str], rel_args: &[&str], operator: &str) -> bool {
+      // Note: head has a literal '1', not a variable, so head_vars is empty
+      assert_eq!(head_vars.is_empty(), true);
+      assert_eq!(operator, "if");
+      !rel_names.is_empty()
+   }
+
+   ascent! {
+      relation testa(i32);
+      relation result(usize);
+
+      testa(1);
+
+      result(1) <--
+         testa(a),
+         if matched!(check_has_clauses, bool);
+   }
+
+   let mut prog = AscentProgram::default();
+   prog.run();
+
+   println!("result: {:?}", prog.result);
+   assert_rels_eq!(prog.result, [(1,)]);
+}
+
+#[test]
+fn test_matched_macro_let() {
+   // Test matched! in 'let' context
+   fn get_count(rel_names: &[&str], head_vars: &[&str], rel_names2: &[&str], rel_args: &[&str], operator: &str) -> usize {
+      assert_eq!(head_vars, &["count"]);
+      assert_eq!(operator, "let count =");
+      rel_names.len()
+   }
+
+   ascent! {
+      relation testa(i32);
+      relation testb(i32);
+      relation result(usize);
+
+      testa(1);
+      testb(2);
+
+      result(count) <--
+         testa(a),
+         testb(b),
+         let count = matched!(get_count, usize);
+   }
+
+   let mut prog = AscentProgram::default();
+   prog.run();
+
+   println!("result: {:?}", prog.result);
+   assert_rels_eq!(prog.result, [(2,)]);
+}
+
+#[test]
+fn test_matched_macro_if_let() {
+   // Test matched! in 'if let' context
+   fn get_maybe_count(rel_names: &[&str], head_vars: &[&str], rel_names2: &[&str], rel_args: &[&str], operator: &str) -> Option<usize> {
+      assert_eq!(head_vars, &["count"]);
+      // Note: quote! adds a space after Some in the pattern
+      assert_eq!(operator, "if let Some(count) =");
+      if rel_names.len() > 0 {
+         Some(rel_names.len())
+      } else {
+         None
+      }
+   }
+
+   ascent! {
+      relation testa(i32);
+      relation testb(i32);
+      relation result(usize);
+
+      testa(1);
+      testb(2);
+
+      result(count) <--
+         testa(a),
+         testb(b),
+         if let Some(count) = matched!(get_maybe_count, Option<usize>);
+   }
+
+   let mut prog = AscentProgram::default();
+   prog.run();
+
+   println!("result: {:?}", prog.result);
+   assert_rels_eq!(prog.result, [(2,)]);
 }
