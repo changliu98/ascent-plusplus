@@ -224,11 +224,13 @@ pub fn ascent_uses(_attr: TokenStream ,input: TokenStream) -> TokenStream {
    }
    let ascent_code: AscentCall = ascent_code.unwrap();
    if ascent_code.used_paths.len() == 0 {
-      let ascent_call = ascent_code.ascent_macro;
+      let macro_name = ascent_code.ascent_macro.to_string();
+      let is_ascent_run = macro_name.contains("run");
+      let is_parallel = macro_name.contains("par");
       let res = ascent_impl(
          ascent_code.code,
-         ascent_call.to_string() == "ascent_run",
-         ascent_call.to_string() == "ascent_par");
+         is_ascent_run,
+         is_parallel);
          if res.is_err() {
             return TokenStream::from(res.unwrap_err().to_compile_error());
          }
