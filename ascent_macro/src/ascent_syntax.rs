@@ -672,7 +672,7 @@ pub struct AggClauseNode {
    pub _agg_arg_paren: syn::token::Paren,
    #[inside(_agg_arg_paren)]
    #[call(Punctuated::parse_terminated)]
-   pub bound_args: Punctuated<Ident, Token![,]>,
+   pub bound_args: Punctuated<Expr, Token![,]>,
    pub _in_kw: Token![in],
    pub rel : Ident,
    pub _dot: Option<Token![.]>,

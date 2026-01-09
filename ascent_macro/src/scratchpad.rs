@@ -35,17 +35,17 @@ fn _test<T: FactTypes>() {
 
    use ascent::rel as custom_ds;
    {
+      ::ascent::rel::rel_codegen! { Polonius_subset , (T :: Origin , T :: Origin , T :: Point) , [[0] , [0 , 1 , 2] , [0 , 2] , [1 , 2] , [2]] , par , () }
+      ::ascent::rel::rel_codegen! { Polonius_origin_live_on_entry , (T :: Origin , T :: Point) , [[0 , 1]] , par , () }
       ::ascent::rel::rel_codegen! { Polonius_loan_invalidated_at , (T :: Loan , T :: Point) , [[0 , 1]] , par , () }
       ::ascent::rel::rel_codegen! { Polonius_errors , (T :: Loan , T :: Point) , [[0 , 1]] , par , () }
-      ::ascent::rel::rel_codegen! { Polonius_placeholder_origin , (T :: Origin ,) , [[0]] , par , () }
-      ::ascent::rel::rel_codegen! { Polonius_origin_contains_loan_on_entry , (T :: Origin , T :: Loan , T :: Point) , [[0 , 1 , 2] , [0 , 2] , [2]] , par , () }
-      ::ascent::rel::rel_codegen! { Polonius_cfg_edge , (T :: Point , T :: Point) , [[0] , [0 , 1]] , par , () }
       ::ascent::rel::rel_codegen! { Polonius_subset_error , (T :: Origin , T :: Origin , T :: Point) , [[0 , 1 , 2]] , par , () }
-      ::ascent::rel::rel_codegen! { Polonius_origin_live_on_entry , (T :: Origin , T :: Point) , [[0 , 1]] , par , () }
       ::ascent::rel::rel_codegen! { Polonius_loan_live_at , (T :: Loan , T :: Point) , [[0 , 1]] , par , () }
+      ::ascent::rel::rel_codegen! { Polonius_cfg_edge , (T :: Point , T :: Point) , [[0] , [0 , 1]] , par , () }
+      ::ascent::rel::rel_codegen! { Polonius_origin_contains_loan_on_entry , (T :: Origin , T :: Loan , T :: Point) , [[0 , 1 , 2] , [0 , 2] , [2]] , par , () }
+      ::ascent::rel::rel_codegen! { Polonius_placeholder_origin , (T :: Origin ,) , [[0]] , par , () }
       ::ascent::rel::rel_codegen! { Polonius_loan_killed_at , (T :: Loan , T :: Point) , [[0 , 1]] , par , () }
       ::ascent::rel::rel_codegen! { Polonius_known_placeholder_subset , (T :: Origin , T :: Origin) , [[0 , 1]] , par , () }
-      ::ascent::rel::rel_codegen! { Polonius_subset , (T :: Origin , T :: Origin , T :: Point) , [[0] , [0 , 1 , 2] , [0 , 2] , [1 , 2] , [2]] , par , () }
       struct Polonius<T: FactTypes> {
          pub cfg_edge: ::ascent::rel::rel!(Polonius_cfg_edge, (T::Point, T::Point), [[0], [0, 1]], par, ()),
          pub errors: ::ascent::rel::rel!(Polonius_errors, (T::Loan, T::Point), [[0, 1]], par, ()),

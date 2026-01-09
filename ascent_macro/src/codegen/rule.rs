@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use crate::utils::{expr_to_ident, tuple_spanned};
+use crate::syn_utils::expr_get_vars;
 use crate::{
    ascent_hir::IndexValType,
    ascent_mir::{
@@ -266,13 +267,18 @@ fn compile_mir_rule_inner(
             let selected_args = mir_relation.indices.iter().map(|&i| &agg.rel_args[i]);
             let selected_args_cloned = selected_args.map(exp_cloned).collect_vec();
             let selected_args_tuple = tuple_spanned(&selected_args_cloned, agg.span);
-            let agg_args_tuple_indices = agg.bound_args.iter().map(|arg| {
-               (
-                  agg.rel_args.iter().find_position(|rel_arg| expr_to_ident(rel_arg) == Some(arg.clone())).unwrap().0,
-                  arg.clone(),
-               )
+
+            // Extract all identifiers from bound_args expressions (including tuples)
+            // and find their positions in rel_args
+            let bound_arg_idents: Vec<Ident> = agg.bound_args.iter()
+               .flat_map(|expr| expr_get_vars(expr))
+               .collect();
+            let agg_args_tuple_indices = bound_arg_idents.iter().filter_map(|arg| {
+               agg.rel_args.iter().find_position(|rel_arg| expr_to_ident(rel_arg) == Some(arg.clone()))
+                  .map(|(pos, _)| (pos, arg.clone()))
             });
 
+            // Build the tuple expression from bound_args (preserving tuple structure)
             let agg_args_tuple =
                tuple_spanned(&agg.bound_args.iter().map(|v| parse_quote! {#v}).collect_vec(), agg.span);
 

@@ -183,8 +183,67 @@ fn test_ascent_agg_simple(){
 //       baz(x) <--
 //          foo(x, _, _),
 //          !bar(_, x);
-         
-//       bar(x, x + 1) <-- baz(x); 
+
+//       bar(x, x + 1) <-- baz(x);
 //    };
 //    assert!(rels_equal([(5,)], res.bar));
 // }
+
+/// Test aggregation with tuple column
+fn build_vector_tuple<'a, TInputIter>(inp: TInputIter) -> std::option::IntoIter<Vec<(i32, i32)>>
+where
+   TInputIter: Iterator<Item = (&'a (i32, i32),)>,
+{
+   let result: Vec<(i32, i32)> = inp.map(|t| *t.0).collect();
+   Some(result).into_iter()
+}
+
+#[test]
+fn test_agg_tuple_column() {
+   let res = ascent_run!{
+      // Relation with a tuple column
+      relation source(i32, (i32, i32));
+      relation result(i32, Vec<(i32, i32)>);
+
+      source(1, (10, 100));
+      source(1, (20, 200));
+      source(2, (30, 300));
+
+      result(key, vec) <--
+         source(key, _),
+         agg vec = build_vector_tuple(item) in source(key, item);
+   };
+   println!("result: {:?}", res.result);
+   // Key 1 should have [(10, 100), (20, 200)]
+   // Key 2 should have [(30, 300)]
+   assert!(res.result.len() == 2);
+}
+
+// Test the same thing with ascent_export/ascent (non-run version)
+use ascent::{ascent_export, ascent_no_expand};
+
+#[ascent_export(AggTestTupleModule)]
+ascent_no_expand!{
+   // Mimic the ltlrev.rs structure more closely
+   relation base_data(i32, i32, i32);
+   relation source(i32, (i32, i32));
+   relation intermediate(i32);
+   relation result(i32, Vec<(i32, i32)>);
+
+   // Populate base data
+   base_data(1, 10, 100);
+   base_data(1, 20, 200);
+   base_data(2, 30, 300);
+
+   // Populate source with tuple from base_data (like func_xtl_snapshot in ltlrev.rs)
+   source(key, (*a, *b)) <-- base_data(key, a, b);
+
+   // Get intermediate keys
+   intermediate(key) <-- source(key, _);
+
+   // Aggregation using the source relation (like the xtl_alias rule)
+   result(key, vec) <--
+      intermediate(key),
+      base_data(key, _, _),  // Add another grounding clause before agg (like instr_in_function)
+      agg vec = build_vector_tuple(item) in source(key, item);
+}

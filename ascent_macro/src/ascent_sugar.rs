@@ -20,7 +20,7 @@ use crate::ascent_syntax::{AggClauseNode, AggregatorNode, AscentProgram, BodyCla
 use crate::utils::{
    expr_to_ident, expr_to_ident_mut, flatten_punctuated, is_wild_card,
    punctuated_map, punctuated_singleton, punctuated_try_map, punctuated_try_unwrap, spans_eq,
-   token_stream_replace_macro_idents, Piper,
+   token_stream_replace_macro_idents, pat_to_ident, Piper,
 };
 use crate::syn_utils::{
    expr_get_vars, expr_visit_free_vars_mut, expr_visit_idents_in_macros_mut,
@@ -354,24 +354,49 @@ fn build_agg_clause_name(agg: &AggClauseNode) -> String {
         AggregatorNode::Path(path) => quote!(#path).to_string(),
         AggregatorNode::Expr(expr) => format!("({})", quote!(#expr)),
     };
-    let bound_args: Vec<String> = agg.bound_args.iter().map(|a| a.to_string()).collect();
+    let bound_args: Vec<String> = agg.bound_args.iter().map(|a| quote!(#a).to_string()).collect();
     let rel = agg.rel.to_string();
 
     format!("agg {} = {}({}) in {}", pat_str, aggregator, bound_args.join(", "), rel)
 }
 
 /// Build an expression that represents the aggregation relation arguments as a tuple
+/// Excludes bound_args variables since they are bound BY the aggregation, not inputs to it
 fn build_agg_rel_args_expr(agg: &AggClauseNode) -> Expr {
-    let arg_exprs: Vec<&Expr> = agg.rel_args.iter().collect();
+    // Collect identifiers from bound_args (these are bound by the aggregation)
+    let bound_arg_idents: HashSet<String> = agg.bound_args.iter()
+        .flat_map(|expr| expr_get_vars(expr))
+        .map(|ident| ident.to_string())
+        .collect();
 
-    if arg_exprs.is_empty() {
-        parse_quote!{ () }
-    } else if arg_exprs.len() == 1 {
-        let arg = arg_exprs[0];
-        parse_quote!{ (#arg,) }
-    } else {
-        parse_quote!{ (#(#arg_exprs),*) }
-    }
+   // Aggregation result variable (e.g., `mappings` in `agg mappings = ...`)
+   let agg_result_ident = pat_to_ident(&agg.pat);
+
+   // Replace bound_args with the aggregation result (if available) so matched!
+   // sees meaningful runtime values instead of dropping them entirely.
+   let arg_exprs: Vec<Expr> = agg.rel_args.iter()
+      .map(|expr| {
+         if let Some(ident) = expr_to_ident(expr) {
+            if bound_arg_idents.contains(&ident.to_string()) {
+               if let Some(result_ident) = &agg_result_ident {
+                  return parse_quote! { &#result_ident };
+               } else {
+                  return parse_quote! { "<bound_arg>" };
+               }
+            }
+         }
+         expr.clone()
+      })
+      .collect();
+
+   if arg_exprs.is_empty() {
+      parse_quote!{ () }
+   } else if arg_exprs.len() == 1 {
+      let arg = &arg_exprs[0];
+      parse_quote!{ (#arg,) }
+   } else {
+      parse_quote!{ (#(#arg_exprs),*) }
+   }
 }
 
 /// Helper function to replace matched! macro in an expression
@@ -412,17 +437,17 @@ fn replace_matched_in_expr(
 
     // Generate code that formats each argument tuple at runtime using Debug
     let rel_args_formatted: Vec<_> = rel_args.iter()
-        .map(|arg_expr| quote!{ &format!("{:?}", #arg_expr) })
+        .map(|arg_expr| quote! { &format!("{:?}", &#arg_expr) })
         .collect();
 
     let rel_args_values: Vec<_> = rel_args.iter()
-        .map(|arg_expr| quote!{ format!("{:?}", #arg_expr) })
+        .map(|arg_expr| quote! { format!("{:?}", &#arg_expr) })
         .collect();
 
     let head_vars_values: Vec<_> = head_vars.iter()
         .map(|ident| {
             if bound_vars.contains(&ident.to_string()) {
-                quote! { format!("{:?}", #ident) }
+                quote! { format!("{:?}", &#ident) }
             } else {
                 quote! { String::from("<unbound>") }
             }

@@ -176,7 +176,7 @@ pub(crate) struct IrAggClause {
    pub span: Span,
    pub pat: Pat,
    pub aggregator: Expr,
-   pub bound_args: Vec<Ident>,
+   pub bound_args: Vec<Expr>,
    pub rel: IrRelation,
    pub extern_db_name: Option<Ident>,
    pub rel_args: Vec<Expr>
@@ -563,11 +563,15 @@ fn compile_rule_to_ir_rule(rule: &RuleNode, prog: &AscentProgram) -> syn::Result
          },
          BodyItemNode::Agg(ref agg) => {
             extend_grounded_vars(&mut grounded_vars, pattern_get_vars(&agg.pat))?;
+            // Collect all identifiers from bound_args (including those in tuples)
+            let bound_arg_idents: Vec<Ident> = agg.bound_args.iter()
+               .flat_map(|expr| expr_get_vars(expr))
+               .collect();
             let indices = agg.rel_args.iter().enumerate().filter(|(_i, expr)| {
                if is_wild_card(expr) {
                   return false;
                } else if let Some(ident) = expr_to_ident(expr) {
-                  if agg.bound_args.iter().contains(&ident) {
+                  if bound_arg_idents.contains(&ident) {
                      return false;
                   }
                }
