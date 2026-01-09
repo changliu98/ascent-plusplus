@@ -168,6 +168,7 @@ fn old_style_count(
     _: &[&str],
     _: &[&str],
     _: &[&str],
+    _: &[&str],
     _: &str,
     _: &[String],
     _: &[String],

@@ -329,6 +329,7 @@ mod tests {
             &["head"],
             &[],
             &[],
+            &[],
             "if",
             &[],
             &[],
@@ -369,6 +370,7 @@ mod tests {
         assert_eq!(result, Some(2));
 
         let result = MatchedContext::<Option<usize>>::handle(
+            &[],
             &[],
             &[],
             &[],

@@ -344,6 +344,36 @@ fn rule_desugar_id_unification(rule: RuleNode) -> RuleNode {
     }
  }
 
+/// Build a string representation of an aggregation clause for the matched! macro
+/// Format: "agg <pat> = <aggregator>(<bound_args>) in <rel>"
+/// The relation arguments are handled separately via rel_args
+fn build_agg_clause_name(agg: &AggClauseNode) -> String {
+    let pat = &agg.pat;
+    let pat_str = quote!(#pat).to_string();
+    let aggregator = match &agg.aggregator {
+        AggregatorNode::Path(path) => quote!(#path).to_string(),
+        AggregatorNode::Expr(expr) => format!("({})", quote!(#expr)),
+    };
+    let bound_args: Vec<String> = agg.bound_args.iter().map(|a| a.to_string()).collect();
+    let rel = agg.rel.to_string();
+
+    format!("agg {} = {}({}) in {}", pat_str, aggregator, bound_args.join(", "), rel)
+}
+
+/// Build an expression that represents the aggregation relation arguments as a tuple
+fn build_agg_rel_args_expr(agg: &AggClauseNode) -> Expr {
+    let arg_exprs: Vec<&Expr> = agg.rel_args.iter().collect();
+
+    if arg_exprs.is_empty() {
+        parse_quote!{ () }
+    } else if arg_exprs.len() == 1 {
+        let arg = arg_exprs[0];
+        parse_quote!{ (#arg,) }
+    } else {
+        parse_quote!{ (#(#arg_exprs),*) }
+    }
+}
+
 /// Helper function to replace matched! macro in an expression
 /// Returns the new expression with matched! replaced, or None if no matched! found
 fn replace_matched_in_expr(
@@ -507,8 +537,22 @@ fn rule_desugar_matched_calls(rule: RuleNode) -> Result<RuleNode> {
                      },
                      _ => {}
                 }
-            } else {
-                 // Other items like Aggregation could bind variables too, but let's stick to common cases
+            } else if let BodyItemNode::Agg(agg) = prev_item {
+                // Handle aggregation clauses
+                rel_names.push(build_agg_clause_name(agg));
+                rel_args.push(build_agg_rel_args_expr(agg));
+
+                // Collect bound variables from the aggregation pattern
+                for v in pattern_get_vars(&agg.pat) {
+                    bound_vars.insert(v.to_string());
+                }
+
+                // Also collect vars from the relation arguments
+                for arg in &agg.rel_args {
+                    for v in expr_get_vars(arg) {
+                        bound_vars.insert(v.to_string());
+                    }
+                }
             }
         }
 

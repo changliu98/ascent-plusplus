@@ -278,6 +278,7 @@ fn test_matched_macro() {
    // Helper function for testing matched! with new signature
    fn capture_matched(
       rel_names: &[&str],
+      _head_rels: &[&str],
       head_vars: &[&str],
       rel_names2: &[&str],
       rel_args: &[&str],
@@ -322,7 +323,7 @@ fn test_matched_macro() {
 #[test]
 fn test_matched_macro_empty() {
    // Test matched! with no preceding clauses
-   fn empty_matched(rel_names: &[&str], head_vars: &[&str], rel_names2: &[&str], rel_args: &[&str], operator: &str) -> Vec<usize> {
+   fn empty_matched(rel_names: &[&str], _head_rels: &[&str], head_vars: &[&str], rel_names2: &[&str], rel_args: &[&str], operator: &str, _rel_arg_values: &[String], _head_var_values: &[String]) -> Vec<usize> {
       assert_eq!(head_vars, &["count"]);
       assert_eq!(operator, "for count in");
       vec![rel_names.len()]
@@ -345,7 +346,7 @@ fn test_matched_macro_empty() {
 #[test]
 fn test_matched_macro_multiple() {
    // Test multiple matched! calls in same rule
-   fn count_clauses(rel_names: &[&str], head_vars: &[&str], rel_names2: &[&str], _rel_args: &[&str], operator: &str) -> Vec<usize> {
+   fn count_clauses(rel_names: &[&str], _head_rels: &[&str], head_vars: &[&str], rel_names2: &[&str], _rel_args: &[&str], operator: &str, _rel_arg_values: &[String], _head_var_values: &[String]) -> Vec<usize> {
       // For this test we just return the count, but verify head vars are passed
       assert_eq!(head_vars, &["count1", "count2"]);
       vec![rel_names.len()]
@@ -376,7 +377,7 @@ fn test_matched_macro_multiple() {
 #[test]
 fn test_matched_macro_if() {
    // Test matched! in 'if' context
-   fn check_has_clauses(rel_names: &[&str], head_vars: &[&str], rel_names2: &[&str], rel_args: &[&str], operator: &str) -> bool {
+   fn check_has_clauses(rel_names: &[&str], _head_rels: &[&str], head_vars: &[&str], rel_names2: &[&str], rel_args: &[&str], operator: &str, _rel_arg_values: &[String], _head_var_values: &[String]) -> bool {
       // Note: head has a literal '1', not a variable, so head_vars is empty
       assert_eq!(head_vars.is_empty(), true);
       assert_eq!(operator, "if");
@@ -404,7 +405,7 @@ fn test_matched_macro_if() {
 #[test]
 fn test_matched_macro_let() {
    // Test matched! in 'let' context
-   fn get_count(rel_names: &[&str], head_vars: &[&str], rel_names2: &[&str], rel_args: &[&str], operator: &str) -> usize {
+   fn get_count(rel_names: &[&str], _head_rels: &[&str], head_vars: &[&str], rel_names2: &[&str], rel_args: &[&str], operator: &str, _rel_arg_values: &[String], _head_var_values: &[String]) -> usize {
       assert_eq!(head_vars, &["count"]);
       assert_eq!(operator, "let count =");
       rel_names.len()
@@ -434,7 +435,7 @@ fn test_matched_macro_let() {
 #[test]
 fn test_matched_macro_if_let() {
    // Test matched! in 'if let' context
-   fn get_maybe_count(rel_names: &[&str], head_vars: &[&str], rel_names2: &[&str], rel_args: &[&str], operator: &str) -> Option<usize> {
+   fn get_maybe_count(rel_names: &[&str], _head_rels: &[&str], head_vars: &[&str], rel_names2: &[&str], rel_args: &[&str], operator: &str, _rel_arg_values: &[String], _head_var_values: &[String]) -> Option<usize> {
       assert_eq!(head_vars, &["count"]);
       // Note: quote! adds a space after Some in the pattern
       assert_eq!(operator, "if let Some(count) =");
