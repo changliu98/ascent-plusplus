@@ -56,7 +56,17 @@ impl<K: Clone + Hash + Eq, V> CRelIndex<K, V> {
    pub fn unwrap_mut_unfrozen(&mut self) -> &mut DashMap<K, VecType<V>, BuildHasherDefault<FxHasher>> {
       match self {
          CRelIndex::Unfrozen(dm) => dm,
-         CRelIndex::Frozen(_) => panic!("CRelIndex::unwrap_unfrozen(): object is Frozen"),
+         CRelIndex::Frozen(_) => {
+            // Allow writing to previously frozen indices by transparently
+            // unfreezing them. Ascent programs may run multiple times in a
+            // single process; silently thawing here prevents rerun panics when
+            // indices remain frozen from an earlier fixpoint.
+            self.unfreeze();
+            match self {
+               CRelIndex::Unfrozen(dm) => dm,
+               CRelIndex::Frozen(_) => unreachable!("CRelIndex failed to unfreeze"),
+            }
+         },
       }
    }
 

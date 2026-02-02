@@ -289,8 +289,51 @@ pub(crate) fn compile_hir_to_mir(hir: &AscentIr) -> syn::Result<AscentMir>{
          for bi in rule.body_items.iter() {
             if let MirBodyItem::Agg(agg) = bi {
                if dynamic_relations.contains_key(&agg.rel.relation) {
-                  return Err(syn::Error::new(agg.span, 
-                     format!("use of aggregated relation {} cannot be stratified", &agg.rel.relation.name)));
+                  // Find which rules in this SCC produce the aggregated relation
+                  let producing_rules: Vec<String> = scc.iter()
+                     .filter_map(|&rule_ind| {
+                        let r = &hir.rules[rule_ind];
+                        let produces = r.head_clauses.iter().any(|hcl| hcl.rel == agg.rel.relation);
+                        if produces {
+                           Some(crate::ascent_hir::ir_rule_summary(r))
+                        } else {
+                           None
+                        }
+                     })
+                     .collect();
+
+                  // Find which relations in this SCC the aggregated relation depends on
+                  let other_dynamic_rels: Vec<String> = dynamic_relations.keys()
+                     .filter(|rel| **rel != agg.rel.relation)
+                     .map(|rel| rel.name.to_string())
+                     .sorted()
+                     .collect();
+
+                  let mut msg = format!(
+                     "use of aggregated relation `{}` cannot be stratified.\n\n\
+                      The relation `{}` is being computed in the same SCC where it is used in an aggregation.\n\
+                      Aggregations require all input data to be complete before computing.",
+                     &agg.rel.relation.name,
+                     &agg.rel.relation.name
+                  );
+
+                  if !producing_rules.is_empty() {
+                     msg.push_str("\n\nRules producing this relation in the same SCC:");
+                     for r in &producing_rules {
+                        msg.push_str(&format!("\n  - {}", r));
+                     }
+                  }
+
+                  if !other_dynamic_rels.is_empty() {
+                     msg.push_str("\n\nOther relations being computed in this SCC (potential dependency chain):");
+                     for rel in &other_dynamic_rels {
+                        msg.push_str(&format!("\n  - {}", rel));
+                     }
+                  }
+
+                  msg.push_str("\n\nTo fix this, ensure the aggregated relation is computed in a previous stratum (SCC).");
+
+                  return Err(syn::Error::new(agg.span, msg));
                }
             }
          }

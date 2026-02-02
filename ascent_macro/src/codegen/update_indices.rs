@@ -99,6 +99,19 @@ fn compile_update_indices_relation_function(
    if par {
       res.push(quote! { use ascent::rayon::iter::{IntoParallelIterator, ParallelIterator}; })
    }
+   let thaw_indices = if par {
+      let rel_ind_common = rel_ind_common_var_name(r);
+      let common_unfreeze = quote! { ascent::internal::Freezable::unfreeze(&mut self.runtime_total.#rel_ind_common); };
+      let index_unfreeze = indices_set.iter().map(|ind| {
+         let name = ind.ir_name();
+         quote! { ascent::internal::Freezable::unfreeze(&mut self.runtime_total.#name); }
+      });
+      quote! {
+         use ascent::internal::Freezable;
+         #common_unfreeze
+         #(#index_unfreeze)*
+      }
+   } else { quote! {} };
    let (rel_index_write_trait, index_insert_fn) = if !par {
       (quote! {ascent::internal::RelIndexWrite}, quote! {index_insert})
    } else {
@@ -109,6 +122,7 @@ fn compile_update_indices_relation_function(
    let func_body = quote! {
       use ascent::internal::ToRelIndex0;
       use #rel_index_write_trait;
+      #thaw_indices
       #(#res)*
    };
    quote! {
