@@ -498,6 +498,47 @@ pub(crate) fn compile_mir(mir: &AscentMir, is_ascent_run: bool) -> proc_macro2::
 
    // generate shared pointer for all external database
 
+   // ── Relation metadata: classify relations as inputs vs outputs ──
+   let all_rel_names: Vec<String> = mir.relations_ir_relations.keys()
+      .filter(|rel| rel.extern_db_name.is_none())
+      .sorted_by_key(|rel| rel.name.to_string())
+      .map(|rel| rel.name.to_string())
+      .collect();
+
+   let mut output_rel_set: HashSet<String> = HashSet::new();
+   for scc in mir.sccs.iter() {
+      for rel in scc.dynamic_relations.keys() {
+         output_rel_set.insert(rel.name.to_string());
+      }
+   }
+   let output_rel_names: Vec<String> = all_rel_names.iter()
+      .filter(|name| output_rel_set.contains(*name))
+      .cloned()
+      .collect();
+   let input_only_rel_names: Vec<String> = all_rel_names.iter()
+      .filter(|name| !output_rel_set.contains(*name))
+      .cloned()
+      .collect();
+
+   let metadata_fns = if !is_ascent_run {
+      quote! {
+         /// All declared relation names in this program.
+         pub fn all_relations() -> &'static [&'static str] {
+            &[#(#all_rel_names),*]
+         }
+         /// Relations that appear in rule heads (derived/output relations).
+         pub fn rule_outputs() -> &'static [&'static str] {
+            &[#(#output_rel_names),*]
+         }
+         /// Relations that never appear in rule heads (input-only relations).
+         pub fn inputs_only() -> &'static [&'static str] {
+            &[#(#input_only_rel_names),*]
+         }
+      }
+   } else {
+      quote! {}
+   };
+
    let sccs_count = sccs_ordered.len();
    let res = quote! {
       #(#rel_codegens)*
@@ -543,6 +584,7 @@ pub(crate) fn compile_mir(mir: &AscentMir, is_ascent_run: bool) -> proc_macro2::
          pub fn scc_times_summary(&self) -> String {
             #scc_times_summary_body
          }
+         #metadata_fns
       }
 
       impl #impl_impl_generics Default for #runtime_struct_name #impl_ty_generics #impl_where_clause {
