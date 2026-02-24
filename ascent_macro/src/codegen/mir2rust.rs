@@ -56,7 +56,10 @@ pub(crate) fn compile_mir(mir: &AscentMir, is_ascent_run: bool) -> proc_macro2::
          continue;
       }
       let name = &rel.name;
-      let rel_attrs = &mir.relations_metadata[rel].attributes;
+      // Filter out `#[local]` attribute — it's consumed by codegen, not emitted on the field.
+      let rel_attrs: Vec<_> = mir.relations_metadata[rel].attributes.iter()
+         .filter(|attr| !attr.path().is_ident("local"))
+         .collect();
       let sorted_rel_index_names = rel_indices.iter().map(|ind| format!("{}", ind.ir_name())).sorted();
       let rel_indices_comment = format!("\nlogical indices: {}", sorted_rel_index_names.into_iter().join("; "));
       let rel_type = rel_type(rel, mir);
@@ -476,7 +479,12 @@ pub(crate) fn compile_mir(mir: &AscentMir, is_ascent_run: bool) -> proc_macro2::
    let vis = &ty_signature.visibility;
    let struct_name = &ty_signature.ident;
    let runtime_struct_name = Ident::new(&format!("{}Runtime", struct_name), Span::call_site());
-   let struct_attrs = &ty_signature.attrs;
+   // Check for #[swap_db] attribute: if present, generate swap_db_fields method.
+   let has_swap_db = ty_signature.attrs.iter().any(|a| a.path().is_ident("swap_db"));
+   // Strip #[swap_db] from emitted struct attributes.
+   let struct_attrs: Vec<_> = ty_signature.attrs.iter()
+      .filter(|a| !a.path().is_ident("swap_db"))
+      .collect();
    let summary_fn = if is_ascent_run {
       quote! {
          pub fn summary(&self) -> &'static str {#summary}
@@ -499,10 +507,28 @@ pub(crate) fn compile_mir(mir: &AscentMir, is_ascent_run: bool) -> proc_macro2::
    // generate shared pointer for all external database
 
    // ── Relation metadata: classify relations as inputs vs outputs ──
-   let all_rel_names: Vec<String> = mir.relations_ir_relations.keys()
+   // Helper: check if a relation has the `#[local]` attribute (excluded from swap_db_fields).
+   let is_local_relation = |rel: &crate::ascent_syntax::RelationIdentity| -> bool {
+      mir.relations_metadata.get(rel)
+         .map(|meta| meta.attributes.iter().any(|attr| attr.path().is_ident("local")))
+         .unwrap_or(false)
+   };
+
+   let all_rel_idents: Vec<Ident> = mir.relations_ir_relations.keys()
       .filter(|rel| rel.extern_db_name.is_none())
       .sorted_by_key(|rel| rel.name.to_string())
-      .map(|rel| rel.name.to_string())
+      .map(|rel| rel.name.clone())
+      .collect();
+
+   // Shared relations: non-local, non-extern — these get swapped with DecompileDB.
+   let shared_rel_idents: Vec<Ident> = mir.relations_ir_relations.keys()
+      .filter(|rel| rel.extern_db_name.is_none() && !is_local_relation(rel))
+      .sorted_by_key(|rel| rel.name.to_string())
+      .map(|rel| rel.name.clone())
+      .collect();
+
+   let all_rel_names: Vec<String> = all_rel_idents.iter()
+      .map(|id| id.to_string())
       .collect();
 
    let mut output_rel_set: HashSet<String> = HashSet::new();
@@ -533,6 +559,23 @@ pub(crate) fn compile_mir(mir: &AscentMir, is_ascent_run: bool) -> proc_macro2::
          /// Relations that never appear in rule heads (input-only relations).
          pub fn inputs_only() -> &'static [&'static str] {
             &[#(#input_only_rel_names),*]
+         }
+      }
+   } else {
+      quote! {}
+   };
+
+   // Generate swap_db_fields method only for programs marked with #[swap_db].
+   // Swaps shared (non-#[local]) relations with DecompileDB.
+   let swap_db_fields_fn = if !is_ascent_run && has_swap_db {
+      let swap_idents = &shared_rel_idents;
+      quote! {
+         /// Swap shared (non-`#[local]`) relation fields between this program and a `DecompileDB`.
+         ///
+         /// Call once before `run()` to move data in, and once after to move results back.
+         /// Relations marked `#[local]` are pass-internal and excluded from the swap.
+         pub fn swap_db_fields(&mut self, db: &mut crate::decompile::elevator::DecompileDB) {
+            #( std::mem::swap(&mut self.#swap_idents, &mut db.#swap_idents); )*
          }
       }
    } else {
@@ -585,6 +628,7 @@ pub(crate) fn compile_mir(mir: &AscentMir, is_ascent_run: bool) -> proc_macro2::
             #scc_times_summary_body
          }
          #metadata_fns
+         #swap_db_fields_fn
       }
 
       impl #impl_impl_generics Default for #runtime_struct_name #impl_ty_generics #impl_where_clause {
