@@ -141,7 +141,7 @@ pub fn compile_mir_scc(mir: &AscentMir, scc_ind: usize) ->
 
    for (i, rule) in scc.rules.iter().enumerate() {
       let msg = mir_rule_summary(rule);
-      let rule_compiled = compile_mir_rule(rule, scc, mir);
+      let rule_compiled = compile_mir_rule(rule, scc, mir, scc_ind, i);
       let rule_time_field = rule_time_field_name(scc_ind, i);
       let (before_rule_var, update_rule_time_field) = if mir.config.include_rule_times {
          (quote! {let before_rule = ::ascent::internal::Instant::now();}, 

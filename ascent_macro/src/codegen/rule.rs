@@ -55,8 +55,8 @@ fn compile_cond_clause(cond: &CondClause, body: proc_macro2::TokenStream) -> pro
    }
 }
 
-pub fn compile_mir_rule(rule: &MirRule, scc: &MirScc, mir: &AscentMir) -> proc_macro2::TokenStream {
-   let (head_rels_structs_and_vars, head_update_code) = head_clauses_structs_and_update_code(rule, scc, mir);
+pub fn compile_mir_rule(rule: &MirRule, scc: &MirScc, mir: &AscentMir, scc_ind: usize, rule_ind: usize) -> proc_macro2::TokenStream {
+   let (head_rels_structs_and_vars, head_update_code) = head_clauses_structs_and_update_code(rule, scc, mir, scc_ind, rule_ind);
 
    const MAX_PAR_ITERS: usize = 2;
 
@@ -318,7 +318,7 @@ fn compile_mir_rule_inner(
 }
 
 fn head_clauses_structs_and_update_code(
-   rule: &MirRule, scc: &MirScc, mir: &AscentMir,
+   rule: &MirRule, scc: &MirScc, mir: &AscentMir, scc_ind: usize, rule_ind: usize,
 ) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
    let mut add_rows = vec![];
 
@@ -452,6 +452,25 @@ fn head_clauses_structs_and_update_code(
             return;
          }
       };
+      // ── Provenance push code ──
+      let scc_ind_u16 = scc_ind as u16;
+      let rule_ind_u16 = rule_ind as u16;
+      let provenance_push_nonlat = if mir.config.track_provenance && hcl.extern_db_name.is_none() {
+         let rel_name_str = head_rel_name.to_string();
+         quote! {
+            if _self.__track_provenance {
+               _self.__provenance_log.push((#rel_name_str, #new_id_name, #scc_ind_u16, #rule_ind_u16));
+            }
+         }
+      } else { quote!{} };
+      let provenance_push_lat = if mir.config.track_provenance && hcl.extern_db_name.is_none() {
+         let rel_name_str = head_rel_name.to_string();
+         quote! {
+            if _self.__track_provenance {
+               _self.__provenance_log.push((#rel_name_str, __new_row_ind, #scc_ind_u16, #rule_ind_u16));
+            }
+         }
+      } else { quote!{} };
       let update_rel_code = if !hcl.delete_flag {
          if let Some(_) = &hcl.extern_db_name {
             quote_spanned! {hcl.span=>
@@ -466,6 +485,7 @@ fn head_clauses_structs_and_update_code(
                   #push_code
                   #(#update_indices)*
                   #set_changed_true_code
+                  #provenance_push_nonlat
                } else {
                   #skip_unchanged_code
                }
@@ -530,6 +550,7 @@ fn head_clauses_structs_and_update_code(
                      let __new_row_ind = __existing_ind;
                      #(#update_indices)*
                      #set_changed_true_code
+                     #provenance_push_lat
                   } else {
                      #skip_unchanged_code
                   }
@@ -538,6 +559,7 @@ fn head_clauses_structs_and_update_code(
                   #(#update_indices)*
                   #_self.#head_rel_name.push(#new_row_to_be_pushed);
                   #set_changed_true_code
+                  #provenance_push_lat
                }
             }
          } else {
@@ -556,6 +578,7 @@ fn head_clauses_structs_and_update_code(
                      let __new_row_ind = __existing_ind;
                      #(#update_indices)*
                      #set_changed_true_code
+                     #provenance_push_lat
                   } else {
                      #skip_unchanged_code
                   }
@@ -570,6 +593,7 @@ fn head_clauses_structs_and_update_code(
                      let __new_row_ind = #_self.#head_rel_name.push(::std::sync::RwLock::new(#new_row_to_be_pushed));
                      #(#update_indices)*
                      #set_changed_true_code
+                     #provenance_push_lat
                   }
                }
             }
