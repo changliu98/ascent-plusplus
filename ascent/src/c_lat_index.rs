@@ -3,7 +3,7 @@ use dashmap::{DashMap, SharedValue};
 use instant::Instant;
 use rustc_hash::FxHasher;
 use std::collections::HashSet;
-use std::hash::{Hash, BuildHasherDefault};
+use std::hash::{Hash, BuildHasher, BuildHasherDefault};
 
 use crate::c_rel_index::{shards_count, DashMapViewParIter};
 use crate::internal::{RelIndexWrite, CRelIndexWrite, RelIndexMerge, Freezable};
@@ -66,12 +66,25 @@ impl<K: Clone + Hash + Eq, V: Clone + Hash + Eq> CLatIndex<K, V> {
 
    #[inline]
    fn insert(&self, key: K, value: V) {
-      match self.unwrap_unfrozen().entry(key) {
-         dashmap::mapref::entry::Entry::Occupied(mut occ) => {occ.get_mut().insert(value);},
-         dashmap::mapref::entry::Entry::Vacant(vac) => {
+      use std::hash::Hasher;
+      use dashmap::Map;
+
+      let dm = self.unwrap_unfrozen();
+      let mut hasher = dm.hasher().build_hasher();
+      key.hash(&mut hasher);
+      let hash = hasher.finish();
+
+      let idx = dm.determine_shard(hash as usize);
+      let mut shard = unsafe { dm._yield_write_shard(idx) };
+
+      match shard.raw_entry_mut().from_key_hashed_nocheck(hash, &key) {
+         hashbrown::hash_map::RawEntryMut::Occupied(mut occ) => {
+            occ.get_mut().get_mut().insert(value);
+         },
+         hashbrown::hash_map::RawEntryMut::Vacant(vac) => {
             let mut set = SetType::default();
             set.insert(value);
-            vac.insert(set);
+            vac.insert(key, SharedValue::new(set));
          },
       }
    }

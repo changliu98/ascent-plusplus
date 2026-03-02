@@ -73,7 +73,16 @@ impl<K: Clone + Hash + Eq, V> CRelFullIndex<K, V> {
 
    #[inline]
    fn insert(&self, key: K, value: V) {
-      self.unwrap_unfrozen().insert(key, value);
+      use dashmap::Map;
+
+      let dm = self.unwrap_unfrozen();
+      let hash = dm.hash_usize(&key);
+      let idx = dm.determine_shard(hash);
+      let mut shard = unsafe { dm._yield_write_shard(idx) };
+
+      shard.raw_entry_mut()
+         .from_key_hashed_nocheck(hash as u64, &key)
+         .insert(key, SharedValue::new(value));
    }
 
    pub fn hash_usize(&self, k: &K) -> usize {

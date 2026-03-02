@@ -78,19 +78,7 @@ impl<K: Clone + Hash + Eq, V> CRelIndex<K, V> {
    }
 
    #[inline]
-   #[allow(dead_code)]
-   // TODO remove if not used
    fn insert(&self, key: K, value: V) {
-      match self.unwrap_unfrozen().entry(key) {
-         dashmap::mapref::entry::Entry::Occupied(mut occ) => {occ.get_mut().push(value);},
-         dashmap::mapref::entry::Entry::Vacant(vac) => {vac.insert(vec![value]);},
-      }
-   }
-
-   #[inline]
-   #[allow(dead_code)]
-   // TODO remove if not used
-   fn insert2(&self, key: K, value: V) {
       use std::hash::Hasher;
       use dashmap::Map;
 
@@ -143,16 +131,7 @@ impl<'a, K: 'a + Clone + Hash + Eq, V: 'a> RelIndexRead<'a> for CRelIndex<K, V> 
    }
 
    fn len(&self) -> usize {
-      // approximate len
-      let sample_size = 4;
-      let shards = self.unwrap_frozen().shards();
-      let (count, sum) = shards.iter().take(sample_size).fold((0, 0), |(c, s), shard| (c + 1, s + shard.read().len()));
-      let res = sum * shards.len() / count;
-      if res == 0 && !self.unwrap_frozen().is_empty() {
-         self.unwrap_frozen().len()
-      } else {
-         res
-      }
+      self.unwrap_frozen().len()
    }
 }
 
@@ -342,7 +321,7 @@ impl<'a, K: 'a + Clone + Hash + Eq, V: 'a> CRelIndexWrite for CRelIndex<K, V> {
 
 pub fn shards_count() -> usize {
    static RES: once_cell::sync::Lazy<usize> = once_cell::sync::Lazy::new(|| {
-      (rayon::current_num_threads() * 4).next_power_of_two()
+      ((rayon::current_num_threads() * 4).next_power_of_two()).min(128)
       // (std::thread::available_parallelism().map_or(1, usize::from) * 4).next_power_of_two()
    });
    *RES
