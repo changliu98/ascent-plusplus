@@ -274,8 +274,8 @@ fn test_macro_in_macro8() {
 }
 
 #[test]
-fn test_matched_macro() {
-   // Helper function for testing matched! with new signature
+fn test_capture_macro() {
+   // Helper function for testing capture! with new signature
    fn capture_matched(
       rel_names: &[&str],
       _head_rels: &[&str],
@@ -307,7 +307,7 @@ fn test_matched_macro() {
       result(name, args) <--
          testa(obj1),
          testb(obj2, obj1),
-         for (name, args) in matched!(capture_matched, Vec<(String, String)>);
+         for (name, args) in capture!(capture_matched, Vec<(String, String)>);
    }
 
    let mut prog = AscentProgram::default();
@@ -321,8 +321,8 @@ fn test_matched_macro() {
 }
 
 #[test]
-fn test_matched_macro_empty() {
-   // Test matched! with no preceding clauses
+fn test_capture_macro_empty() {
+   // Test capture! with no preceding clauses
    fn empty_matched(rel_names: &[&str], _head_rels: &[&str], head_vars: &[&str], rel_names2: &[&str], rel_args: &[&str], operator: &str, _rel_arg_values: &[String], _head_var_values: &[String]) -> Vec<usize> {
       assert_eq!(head_vars, &["count"]);
       assert_eq!(operator, "for count in");
@@ -333,7 +333,7 @@ fn test_matched_macro_empty() {
       relation result(usize);
 
       result(count) <--
-         for count in matched!(empty_matched, Vec<usize>);
+         for count in capture!(empty_matched, Vec<usize>);
    }
 
    let mut prog = AscentProgram::default();
@@ -344,8 +344,8 @@ fn test_matched_macro_empty() {
 }
 
 #[test]
-fn test_matched_macro_multiple() {
-   // Test multiple matched! calls in same rule
+fn test_capture_macro_multiple() {
+   // Test multiple capture! calls in same rule
    fn count_clauses(rel_names: &[&str], _head_rels: &[&str], head_vars: &[&str], rel_names2: &[&str], _rel_args: &[&str], operator: &str, _rel_arg_values: &[String], _head_var_values: &[String]) -> Vec<usize> {
       // For this test we just return the count, but verify head vars are passed
       assert_eq!(head_vars, &["count1", "count2"]);
@@ -362,9 +362,9 @@ fn test_matched_macro_multiple() {
 
       result(count1, count2) <--
          testa(a),
-         for count1 in matched!(count_clauses, Vec<usize>),
+         for count1 in capture!(count_clauses, Vec<usize>),
          testb(b),
-         for count2 in matched!(count_clauses, Vec<usize>);
+         for count2 in capture!(count_clauses, Vec<usize>);
    }
 
    let mut prog = AscentProgram::default();
@@ -375,8 +375,8 @@ fn test_matched_macro_multiple() {
 }
 
 #[test]
-fn test_matched_macro_if() {
-   // Test matched! in 'if' context
+fn test_capture_macro_if() {
+   // Test capture! in 'if' context
    fn check_has_clauses(rel_names: &[&str], _head_rels: &[&str], head_vars: &[&str], rel_names2: &[&str], rel_args: &[&str], operator: &str, _rel_arg_values: &[String], _head_var_values: &[String]) -> bool {
       // Note: head has a literal '1', not a variable, so head_vars is empty
       assert_eq!(head_vars.is_empty(), true);
@@ -392,7 +392,7 @@ fn test_matched_macro_if() {
 
       result(1) <--
          testa(a),
-         if matched!(check_has_clauses, bool);
+         if capture!(check_has_clauses, bool);
    }
 
    let mut prog = AscentProgram::default();
@@ -403,8 +403,8 @@ fn test_matched_macro_if() {
 }
 
 #[test]
-fn test_matched_macro_let() {
-   // Test matched! in 'let' context
+fn test_capture_macro_let() {
+   // Test capture! in 'let' context
    fn get_count(rel_names: &[&str], _head_rels: &[&str], head_vars: &[&str], rel_names2: &[&str], rel_args: &[&str], operator: &str, _rel_arg_values: &[String], _head_var_values: &[String]) -> usize {
       assert_eq!(head_vars, &["count"]);
       assert_eq!(operator, "let count =");
@@ -422,7 +422,7 @@ fn test_matched_macro_let() {
       result(count) <--
          testa(a),
          testb(b),
-         let count = matched!(get_count, usize);
+         let count = capture!(get_count, usize);
    }
 
    let mut prog = AscentProgram::default();
@@ -433,8 +433,8 @@ fn test_matched_macro_let() {
 }
 
 #[test]
-fn test_matched_macro_if_let() {
-   // Test matched! in 'if let' context
+fn test_capture_macro_if_let() {
+   // Test capture! in 'if let' context
    fn get_maybe_count(rel_names: &[&str], _head_rels: &[&str], head_vars: &[&str], rel_names2: &[&str], rel_args: &[&str], operator: &str, _rel_arg_values: &[String], _head_var_values: &[String]) -> Option<usize> {
       assert_eq!(head_vars, &["count"]);
       // Note: quote! adds a space after Some in the pattern
@@ -457,7 +457,7 @@ fn test_matched_macro_if_let() {
       result(count) <--
          testa(a),
          testb(b),
-         if let Some(count) = matched!(get_maybe_count, Option<usize>);
+         if let Some(count) = capture!(get_maybe_count, Option<usize>);
    }
 
    let mut prog = AscentProgram::default();

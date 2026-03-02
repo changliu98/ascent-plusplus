@@ -249,57 +249,57 @@ fn rule_desugar_id_unification(rule: RuleNode) -> RuleNode {
     RuleNode{head_clauses: rule.head_clauses.clone(), body_items: desugared_body_items}
  }
 
- /// Check if an expression is a matched! macro call
- fn is_matched_macro(expr: &Expr) -> bool {
+ /// Check if an expression is a capture! macro call
+ fn is_capture_macro(expr: &Expr) -> bool {
     if let Expr::Macro(em) = expr {
-       em.mac.path.is_ident("matched")
+       em.mac.path.is_ident("capture")
     } else {
        false
     }
  }
 
- /// Arguments to the matched! macro
- enum MatchedMacroArgs {
-    /// New generic syntax: matched!(Type) or matched!(Path::<Type>)
-    /// Example: matched!(MatchedContext::<usize>)
+ /// Arguments to the capture! macro
+ enum CaptureMacroArgs {
+    /// New generic syntax: capture!(Type) or capture!(Path::<Type>)
+    /// Example: capture!(CaptureContext::<usize>)
     Generic {
        handler_expr: Expr,
     },
-    /// Legacy syntax: matched!(func, Type)
-    /// Example: matched!(get_count, usize)
+    /// Legacy syntax: capture!(func, Type)
+    /// Example: capture!(get_count, usize)
     Legacy {
        func_expr: Expr,
        _return_type: Type,
     },
  }
 
- /// Parse matched! macro arguments
+ /// Parse capture! macro arguments
  /// Supports both:
- /// - New syntax: matched!(MatchedContext::<Type>)
- /// - Legacy syntax: matched!(func_name, Type)
- fn parse_matched_args(tokens: TokenStream) -> Result<MatchedMacroArgs> {
-    let parser = |input: ParseStream| -> Result<MatchedMacroArgs> {
+ /// - New syntax: capture!(CaptureContext::<Type>)
+ /// - Legacy syntax: capture!(func_name, Type)
+ fn parse_capture_args(tokens: TokenStream) -> Result<CaptureMacroArgs> {
+    let parser = |input: ParseStream| -> Result<CaptureMacroArgs> {
        // Parse the first expression
        let first_expr: Expr = input.parse()?;
 
        // Check if there's a comma (legacy syntax)
        if input.peek(Token![,]) {
-          // Legacy syntax: matched!(func, Type)
+          // Legacy syntax: capture!(func, Type)
           input.parse::<Token![,]>()?;
           let return_type: Type = input.parse()?;
-          Ok(MatchedMacroArgs::Legacy {
+          Ok(CaptureMacroArgs::Legacy {
              func_expr: first_expr,
              _return_type: return_type,
           })
        } else if input.is_empty() {
-          // New syntax: matched!(Type) or matched!(Path::<Type>)
-          Ok(MatchedMacroArgs::Generic {
+          // New syntax: capture!(Type) or capture!(Path::<Type>)
+          Ok(CaptureMacroArgs::Generic {
              handler_expr: first_expr,
           })
        } else {
           Err(Error::new(
              input.span(),
-             "expected end of input or comma in matched! macro"
+             "expected end of input or comma in capture! macro"
           ))
        }
     };
@@ -315,7 +315,7 @@ fn rule_desugar_id_unification(rule: RuleNode) -> RuleNode {
           BodyClauseArg::Expr(e) => e.clone(),
           BodyClauseArg::Pat(p) => {
              // For patterns, extract bound variables from the pattern
-             // Pattern args should be desugared before matched! calls, but if we encounter them,
+             // Pattern args should be desugared before capture! calls, but if we encounter them,
              // we'll extract variables using pattern_get_vars and create a tuple of them
              let vars = pattern_get_vars(&p.pattern);
              if vars.is_empty() {
@@ -344,7 +344,7 @@ fn rule_desugar_id_unification(rule: RuleNode) -> RuleNode {
     }
  }
 
-/// Build a string representation of an aggregation clause for the matched! macro
+/// Build a string representation of an aggregation clause for the capture! macro
 /// Format: "agg <pat> = <aggregator>(<bound_args>) in <rel>"
 /// The relation arguments are handled separately via rel_args
 fn build_agg_clause_name(agg: &AggClauseNode) -> String {
@@ -372,7 +372,7 @@ fn build_agg_rel_args_expr(agg: &AggClauseNode) -> Expr {
    // Aggregation result variable (e.g., `mappings` in `agg mappings = ...`)
    let agg_result_ident = pat_to_ident(&agg.pat);
 
-   // Replace bound_args with the aggregation result (if available) so matched!
+   // Replace bound_args with the aggregation result (if available) so capture!
    // sees meaningful runtime values instead of dropping them entirely.
    let arg_exprs: Vec<Expr> = agg.rel_args.iter()
       .map(|expr| {
@@ -399,9 +399,9 @@ fn build_agg_rel_args_expr(agg: &AggClauseNode) -> Expr {
    }
 }
 
-/// Helper function to replace matched! macro in an expression
-/// Returns the new expression with matched! replaced, or None if no matched! found
-fn replace_matched_in_expr(
+/// Helper function to replace capture! macro in an expression
+/// Returns the new expression with capture! replaced, or None if no capture! found
+fn replace_capture_in_expr(
     expr: &Expr,
     rel_names: &[String],
     head_rels: &[String],
@@ -410,7 +410,7 @@ fn replace_matched_in_expr(
     bound_vars: &HashSet<String>,
     operator_prefix: &str
 ) -> Option<Expr> {
-    if !is_matched_macro(expr) {
+    if !is_capture_macro(expr) {
         return None;
     }
 
@@ -419,7 +419,7 @@ fn replace_matched_in_expr(
         _ => return None,
     };
 
-    let matched_args = parse_matched_args(expr_macro.mac.tokens.clone()).ok()?;
+    let capture_args = parse_capture_args(expr_macro.mac.tokens.clone()).ok()?;
 
     // Generate arrays of string literals for relation names and head vars
     let rel_names_lits: Vec<_> = rel_names.iter()
@@ -455,10 +455,10 @@ fn replace_matched_in_expr(
         .collect();
 
     // Generate the function call expression based on which syntax is used
-    let new_expr: Expr = match matched_args {
-        MatchedMacroArgs::Generic { handler_expr } => {
+    let new_expr: Expr = match capture_args {
+        CaptureMacroArgs::Generic { handler_expr } => {
             // New syntax: call the handler's handle method
-            // matched!(MatchedContext::<T>) becomes MatchedContext::<T>::handle(...)
+            // capture!(CaptureContext::<T>) becomes CaptureContext::<T>::handle(...)
             parse_quote! {
                 #handler_expr::handle(
                     &[#(#rel_names_lits),*],
@@ -472,9 +472,9 @@ fn replace_matched_in_expr(
                 )
             }
         }
-        MatchedMacroArgs::Legacy { func_expr, _return_type: _ } => {
+        CaptureMacroArgs::Legacy { func_expr, _return_type: _ } => {
             // Legacy syntax: call the function directly (backward compatible)
-            // matched!(func, Type) becomes func(...)
+            // capture!(func, Type) becomes func(...)
             // Note: return_type is still ignored for backward compatibility
             parse_quote! {
                 #func_expr(
@@ -494,8 +494,8 @@ fn replace_matched_in_expr(
     Some(new_expr)
 }
 
-/// Desugar matched! calls in rule body items
-fn rule_desugar_matched_calls(rule: RuleNode) -> Result<RuleNode> {
+/// Desugar capture! calls in rule body items
+fn rule_desugar_capture_calls(rule: RuleNode) -> Result<RuleNode> {
     let mut desugared_body_items = vec![];
 
     // Extract head variables from all head clauses
@@ -582,13 +582,13 @@ fn rule_desugar_matched_calls(rule: RuleNode) -> Result<RuleNode> {
         }
 
         match body_item {
-            // Handle: for x in matched!(...)
-            BodyItemNode::Generator(gen) if is_matched_macro(&gen.expr) => {
+            // Handle: for x in capture!(...)
+            BodyItemNode::Generator(gen) if is_capture_macro(&gen.expr) => {
                 let pattern = &gen.pattern;
                 let pattern_str = quote!(#pattern).to_string();
                 let operator_prefix = format!("for {} in", pattern_str);
 
-                if let Some(new_expr) = replace_matched_in_expr(&gen.expr, &rel_names, &head_rels, &rel_args, &head_vars, &bound_vars, &operator_prefix) {
+                if let Some(new_expr) = replace_capture_in_expr(&gen.expr, &rel_names, &head_rels, &rel_args, &head_vars, &bound_vars, &operator_prefix) {
                     let mut new_gen = gen.clone();
                     new_gen.expr = new_expr;
                     desugared_body_items.push(BodyItemNode::Generator(new_gen));
@@ -597,11 +597,11 @@ fn rule_desugar_matched_calls(rule: RuleNode) -> Result<RuleNode> {
                 }
             }
 
-            // Handle: if matched!(...)
-            BodyItemNode::Cond(CondClause::If(if_clause)) if is_matched_macro(&if_clause.cond) => {
+            // Handle: if capture!(...)
+            BodyItemNode::Cond(CondClause::If(if_clause)) if is_capture_macro(&if_clause.cond) => {
                 let operator_prefix = "if";
 
-                if let Some(new_expr) = replace_matched_in_expr(&if_clause.cond, &rel_names, &head_rels, &rel_args, &head_vars, &bound_vars, operator_prefix) {
+                if let Some(new_expr) = replace_capture_in_expr(&if_clause.cond, &rel_names, &head_rels, &rel_args, &head_vars, &bound_vars, operator_prefix) {
                     let mut new_if_clause = if_clause.clone();
                     new_if_clause.cond = new_expr;
                     desugared_body_items.push(BodyItemNode::Cond(CondClause::If(new_if_clause)));
@@ -610,13 +610,13 @@ fn rule_desugar_matched_calls(rule: RuleNode) -> Result<RuleNode> {
                 }
             }
 
-            // Handle: if let pattern = matched!(...)
-            BodyItemNode::Cond(CondClause::IfLet(if_let_clause)) if is_matched_macro(&if_let_clause.exp) => {
+            // Handle: if let pattern = capture!(...)
+            BodyItemNode::Cond(CondClause::IfLet(if_let_clause)) if is_capture_macro(&if_let_clause.exp) => {
                 let pattern = &if_let_clause.pattern;
                 let pattern_str = quote!(#pattern).to_string();
                 let operator_prefix = format!("if let {} =", pattern_str);
 
-                if let Some(new_expr) = replace_matched_in_expr(&if_let_clause.exp, &rel_names, &head_rels, &rel_args, &head_vars, &bound_vars, &operator_prefix) {
+                if let Some(new_expr) = replace_capture_in_expr(&if_let_clause.exp, &rel_names, &head_rels, &rel_args, &head_vars, &bound_vars, &operator_prefix) {
                     let mut new_if_let_clause = if_let_clause.clone();
                     new_if_let_clause.exp = new_expr;
                     desugared_body_items.push(BodyItemNode::Cond(CondClause::IfLet(new_if_let_clause)));
@@ -625,13 +625,13 @@ fn rule_desugar_matched_calls(rule: RuleNode) -> Result<RuleNode> {
                 }
             }
 
-            // Handle: let pattern = matched!(...)
-            BodyItemNode::Cond(CondClause::Let(let_clause)) if is_matched_macro(&let_clause.exp) => {
+            // Handle: let pattern = capture!(...)
+            BodyItemNode::Cond(CondClause::Let(let_clause)) if is_capture_macro(&let_clause.exp) => {
                 let pattern = &let_clause.pattern;
                 let pattern_str = quote!(#pattern).to_string();
                 let operator_prefix = format!("let {} =", pattern_str);
 
-                if let Some(new_expr) = replace_matched_in_expr(&let_clause.exp, &rel_names, &head_rels, &rel_args, &head_vars, &bound_vars, &operator_prefix) {
+                if let Some(new_expr) = replace_capture_in_expr(&let_clause.exp, &rel_names, &head_rels, &rel_args, &head_vars, &bound_vars, &operator_prefix) {
                     let mut new_let_clause = let_clause.clone();
                     new_let_clause.exp = new_expr;
                     desugared_body_items.push(BodyItemNode::Cond(CondClause::Let(new_let_clause)));
@@ -1303,9 +1303,9 @@ fn desugar_subquery_runs(rules: &Vec<RuleNode>) -> Vec<RuleNode> {
        .map(|r| rule_expand_macro_invocations(r, &macros))
        .collect::<Result<Vec<_>>>()?;
 
-    // Desugar matched! calls early, before other transformations
+    // Desugar capture! calls early, before other transformations
     rules_macro_expanded = rules_macro_expanded.into_iter()
-       .map(rule_desugar_matched_calls)
+       .map(rule_desugar_capture_calls)
        .collect::<Result<Vec<_>>>()?;
 
     rules_macro_expanded = desugar_subquery_runs(&rules_macro_expanded);

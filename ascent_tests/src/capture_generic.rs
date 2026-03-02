@@ -1,20 +1,20 @@
-/// Generic trait-based matched! handler system
+/// Generic trait-based capture! handler system
 ///
 /// This allows the return type to actually drive behavior, rather than just
-/// being a type annotation. Users can call matched!(MatchedContext::<Type>)
+/// being a type annotation. Users can call capture!(CaptureContext::<Type>)
 /// and get different behavior based on Type.
 
 use std::marker::PhantomData;
 
-/// Trait for handling matched! macro invocations with type-driven behavior
-pub trait MatchedHandler {
+/// Trait for handling capture! macro invocations with type-driven behavior
+pub trait CaptureHandler {
     /// The output type this handler produces
     type Output;
 
-    /// Handle a matched! invocation
+    /// Handle a capture! invocation
     ///
     /// # Parameters
-    /// - `rel_names`: Names of relations used in the rule body (before matched!)
+    /// - `rel_names`: Names of relations used in the rule body (before capture!)
     /// - `head_rels`: Names of the relations in the rule head
     /// - `head_vars`: Variables extracted from the rule head
     /// - `rel_names2`: Duplicate of rel_names (for API compatibility)
@@ -34,23 +34,23 @@ pub trait MatchedHandler {
     ) -> Self::Output;
 }
 
-/// Generic context for matched! handlers
+/// Generic context for capture! handlers
 ///
-/// Use this as the handler in matched! calls:
+/// Use this as the handler in capture! calls:
 /// ```ignore
-/// matched!(MatchedContext::<usize>)
-/// matched!(MatchedContext::<bool>)
-/// matched!(MatchedContext::<Vec<(String, String)>>)
+/// capture!(CaptureContext::<usize>)
+/// capture!(CaptureContext::<bool>)
+/// capture!(CaptureContext::<Vec<(String, String)>>)
 /// ```
 ///
 /// The type parameter determines what operation is performed and what is returned.
-pub struct MatchedContext<T>(PhantomData<T>);
+pub struct CaptureContext<T>(PhantomData<T>);
 
-impl<T> MatchedContext<T> {
+impl<T> CaptureContext<T> {
     /// Generic handler that dispatches based on the output type
     ///
     /// This method can be called directly or through the trait bound.
-    /// The return type T must implement MatchedHandler for MatchedContext<T>.
+    /// The return type T must implement CaptureHandler for CaptureContext<T>.
     pub fn handle(
         rel_names: &[&str],
         head_rels: &[&str],
@@ -62,9 +62,9 @@ impl<T> MatchedContext<T> {
         head_var_values: &[String],
     ) -> T
     where
-        MatchedContext<T>: MatchedHandler<Output = T>,
+        CaptureContext<T>: CaptureHandler<Output = T>,
     {
-        <MatchedContext<T> as MatchedHandler>::handle(
+        <CaptureContext<T> as CaptureHandler>::handle(
             rel_names, head_rels, head_vars, rel_names2, rel_args, operator, rel_arg_values, head_var_values
         )
     }
@@ -74,10 +74,10 @@ impl<T> MatchedContext<T> {
 // Utility function for string reconstruction
 // ============================================================================
 
-/// Constructs a string representation of a matched! rule
+/// Constructs a string representation of a capture! rule
 ///
 /// This function reconstructs the rule syntax from the metadata passed by the macro.
-fn construct_matched_string(
+fn construct_capture_string(
     rel_names: &[&str],
     head_rels: &[&str],
     head_vars: &[&str],
@@ -120,10 +120,10 @@ fn construct_matched_string(
         result.push_str("),\n");
     }
 
-    // Add the matched! invocation
+    // Add the capture! invocation
     result.push_str("    ");
     result.push_str(operator);
-    result.push_str(" matched!");
+    result.push_str(" capture!");
 
     result
 }
@@ -132,8 +132,8 @@ fn construct_matched_string(
 // Standard implementations for common types
 // ============================================================================
 
-/// Return the count of clauses before the matched! invocation
-impl MatchedHandler for MatchedContext<usize> {
+/// Return the count of clauses before the capture! invocation
+impl CaptureHandler for CaptureContext<usize> {
     type Output = usize;
 
     fn handle(
@@ -150,8 +150,8 @@ impl MatchedHandler for MatchedContext<usize> {
     }
 }
 
-/// Return whether there are any clauses before the matched! invocation
-impl MatchedHandler for MatchedContext<bool> {
+/// Return whether there are any clauses before the capture! invocation
+impl CaptureHandler for CaptureContext<bool> {
     type Output = bool;
 
     fn handle(
@@ -169,7 +169,7 @@ impl MatchedHandler for MatchedContext<bool> {
 }
 
 /// Return a list of (relation_name, arguments) pairs
-impl MatchedHandler for MatchedContext<Vec<(String, String)>> {
+impl CaptureHandler for CaptureContext<Vec<(String, String)>> {
     type Output = Vec<(String, String)>;
 
     fn handle(
@@ -191,7 +191,7 @@ impl MatchedHandler for MatchedContext<Vec<(String, String)>> {
 }
 
 /// Return Some(count) if there are clauses, None if empty
-impl MatchedHandler for MatchedContext<Option<usize>> {
+impl CaptureHandler for CaptureContext<Option<usize>> {
     type Output = Option<usize>;
 
     fn handle(
@@ -213,7 +213,7 @@ impl MatchedHandler for MatchedContext<Option<usize>> {
 }
 
 /// Return the reconstructed rule string representation
-impl MatchedHandler for MatchedContext<String> {
+impl CaptureHandler for CaptureContext<String> {
     type Output = String;
 
     fn handle(
@@ -226,12 +226,12 @@ impl MatchedHandler for MatchedContext<String> {
         _rel_arg_values: &[String],
         _head_var_values: &[String],
     ) -> String {
-        construct_matched_string(rel_names, head_rels, head_vars, rel_names2, rel_args, operator)
+        construct_capture_string(rel_names, head_rels, head_vars, rel_names2, rel_args, operator)
     }
 }
 
 /// Return a list of all relation names
-impl MatchedHandler for MatchedContext<Vec<String>> {
+impl CaptureHandler for CaptureContext<Vec<String>> {
     type Output = Vec<String>;
 
     fn handle(
@@ -265,7 +265,7 @@ pub struct ClauseAnalysis {
     pub operator: String,
 }
 
-impl MatchedHandler for MatchedContext<ClauseAnalysis> {
+impl CaptureHandler for CaptureContext<ClauseAnalysis> {
     type Output = ClauseAnalysis;
 
     fn handle(
@@ -296,8 +296,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_matched_context_usize() {
-        let result = MatchedContext::<usize>::handle(
+    fn test_capture_context_usize() {
+        let result = CaptureContext::<usize>::handle(
             &["testa", "testb"],
             &["head"],
             &["x", "y"],
@@ -311,8 +311,8 @@ mod tests {
     }
 
     #[test]
-    fn test_matched_context_bool() {
-        let result = MatchedContext::<bool>::handle(
+    fn test_capture_context_bool() {
+        let result = CaptureContext::<bool>::handle(
             &["testa"],
             &["head"],
             &[],
@@ -324,7 +324,7 @@ mod tests {
         );
         assert_eq!(result, true);
 
-        let result = MatchedContext::<bool>::handle(
+        let result = CaptureContext::<bool>::handle(
             &[],
             &["head"],
             &[],
@@ -338,8 +338,8 @@ mod tests {
     }
 
     #[test]
-    fn test_matched_context_vec_tuple() {
-        let result = MatchedContext::<Vec<(String, String)>>::handle(
+    fn test_capture_context_vec_tuple() {
+        let result = CaptureContext::<Vec<(String, String)>>::handle(
             &["testa", "testb"],
             &["head"],
             &["name", "args"],
@@ -356,8 +356,8 @@ mod tests {
     }
 
     #[test]
-    fn test_matched_context_option() {
-        let result = MatchedContext::<Option<usize>>::handle(
+    fn test_capture_context_option() {
+        let result = CaptureContext::<Option<usize>>::handle(
             &["testa", "testb"],
             &[],
             &[],
@@ -369,7 +369,7 @@ mod tests {
         );
         assert_eq!(result, Some(2));
 
-        let result = MatchedContext::<Option<usize>>::handle(
+        let result = CaptureContext::<Option<usize>>::handle(
             &[],
             &[],
             &[],
@@ -383,8 +383,8 @@ mod tests {
     }
 
     #[test]
-    fn test_matched_context_string() {
-        let result = MatchedContext::<String>::handle(
+    fn test_capture_context_string() {
+        let result = CaptureContext::<String>::handle(
             &["testa"],
             &["myhead"],
             &[],
@@ -397,12 +397,12 @@ mod tests {
 
         assert!(result.contains("myhead(...)"));
         assert!(result.contains("testa(a)"));
-        assert!(result.contains("if matched!"));
+        assert!(result.contains("if capture!"));
     }
 
     #[test]
-    fn test_matched_context_vec_string() {
-        let result = MatchedContext::<Vec<String>>::handle(
+    fn test_capture_context_vec_string() {
+        let result = CaptureContext::<Vec<String>>::handle(
             &["testa", "testb", "testc"],
             &[],
             &[],
@@ -418,7 +418,7 @@ mod tests {
 
     #[test]
     fn test_clause_analysis() {
-        let result = MatchedContext::<ClauseAnalysis>::handle(
+        let result = CaptureContext::<ClauseAnalysis>::handle(
             &["testa", "testb"],
             &["head"],
             &["x"],
@@ -438,7 +438,7 @@ mod tests {
     #[test]
     fn test_generic_handle_method() {
         // Test that the generic handle method works with type inference
-        let result: usize = MatchedContext::handle(
+        let result: usize = CaptureContext::handle(
             &["testa"],
             &[],
             &[],
@@ -450,7 +450,7 @@ mod tests {
         );
         assert_eq!(result, 1);
 
-        let result: bool = MatchedContext::handle(
+        let result: bool = CaptureContext::handle(
             &["testa"],
             &[],
             &[],

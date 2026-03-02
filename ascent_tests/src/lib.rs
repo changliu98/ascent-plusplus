@@ -13,8 +13,8 @@ mod analysis_exp;
 mod agg_tests;
 mod example_tests;
 mod macros_tests;
-pub mod matched_generic;
-mod matched_turbofish_tests;
+pub mod capture_generic;
+mod capture_turbofish_tests;
 
 mod provenance;
 mod dynamic_programming;

@@ -2,10 +2,10 @@
 
 use ascent::ascent;
 use crate::assert_rels_eq;
-use crate::matched_generic::MatchedContext;
+use crate::capture_generic::CaptureContext;
 
 #[test]
-fn test_matched_turbofish_usize() {
+fn test_capture_turbofish_usize() {
     // Test the new generic syntax with usize (count of clauses)
     ascent! {
         relation testa(i32);
@@ -18,7 +18,7 @@ fn test_matched_turbofish_usize() {
         result(count) <--
             testa(a),
             testb(b),
-            let count = matched!(MatchedContext::<usize>);
+            let count = capture!(CaptureContext::<usize>);
     }
 
     let mut prog = AscentProgram::default();
@@ -29,7 +29,7 @@ fn test_matched_turbofish_usize() {
 }
 
 #[test]
-fn test_matched_turbofish_bool() {
+fn test_capture_turbofish_bool() {
     // Test the new generic syntax with bool
     ascent! {
         relation testa(i32);
@@ -39,7 +39,7 @@ fn test_matched_turbofish_bool() {
 
         result(1) <--
             testa(a),
-            if matched!(MatchedContext::<bool>);
+            if capture!(CaptureContext::<bool>);
     }
 
     let mut prog = AscentProgram::default();
@@ -50,7 +50,7 @@ fn test_matched_turbofish_bool() {
 }
 
 #[test]
-fn test_matched_turbofish_vec_tuple() {
+fn test_capture_turbofish_vec_tuple() {
     // Test the new generic syntax with Vec<(String, String)>
     ascent! {
         relation testa(i32);
@@ -63,7 +63,7 @@ fn test_matched_turbofish_vec_tuple() {
         result(name, args) <--
             testa(obj1),
             testb(obj2, obj1),
-            for (name, args) in matched!(MatchedContext::<Vec<(String, String)>>);
+            for (name, args) in capture!(CaptureContext::<Vec<(String, String)>>);
     }
 
     let mut prog = AscentProgram::default();
@@ -77,7 +77,7 @@ fn test_matched_turbofish_vec_tuple() {
 }
 
 #[test]
-fn test_matched_turbofish_option() {
+fn test_capture_turbofish_option() {
     // Test the new generic syntax with Option<usize>
     ascent! {
         relation testa(i32);
@@ -90,7 +90,7 @@ fn test_matched_turbofish_option() {
         result(count) <--
             testa(a),
             testb(b),
-            if let Some(count) = matched!(MatchedContext::<Option<usize>>);
+            if let Some(count) = capture!(CaptureContext::<Option<usize>>);
     }
 
     let mut prog = AscentProgram::default();
@@ -101,7 +101,7 @@ fn test_matched_turbofish_option() {
 }
 
 #[test]
-fn test_matched_turbofish_string() {
+fn test_capture_turbofish_string() {
     // Test the new generic syntax with String (reconstructed rule)
     ascent! {
         relation testa(i32);
@@ -114,7 +114,7 @@ fn test_matched_turbofish_string() {
         result(rule_str) <--
             testa(a),
             testb(b, a),
-            let rule_str = matched!(MatchedContext::<String>);
+            let rule_str = capture!(CaptureContext::<String>);
     }
 
     let mut prog = AscentProgram::default();
@@ -127,11 +127,11 @@ fn test_matched_turbofish_string() {
     // Now we get runtime values formatted with Debug
     assert!(rule_str.contains("testa((1,))"));
     assert!(rule_str.contains("testb((2, 1))"));
-    assert!(rule_str.contains("let rule_str = matched!"));
+    assert!(rule_str.contains("let rule_str = capture!"));
 }
 
 #[test]
-fn test_matched_turbofish_vec_string() {
+fn test_capture_turbofish_vec_string() {
     // Test the new generic syntax with Vec<String> (just relation names)
     ascent! {
         relation testa(i32);
@@ -147,7 +147,7 @@ fn test_matched_turbofish_vec_string() {
             testa(a),
             testb(b),
             testc(c),
-            for name in matched!(MatchedContext::<Vec<String>>);
+            for name in capture!(CaptureContext::<Vec<String>>);
     }
 
     let mut prog = AscentProgram::default();
@@ -161,7 +161,7 @@ fn test_matched_turbofish_vec_string() {
 }
 
 #[test]
-fn test_matched_mixed_old_and_new_syntax() {
+fn test_capture_mixed_old_and_new_syntax() {
     // Test that old and new syntax can coexist
 fn old_style_count(
     rel_names: &[&str],
@@ -188,12 +188,12 @@ fn old_style_count(
         // Old syntax
         result1(count) <--
             testa(a),
-            let count = matched!(old_style_count, usize);
+            let count = capture!(old_style_count, usize);
 
         // New syntax
         result2(count) <--
             testb(b),
-            let count = matched!(MatchedContext::<usize>);
+            let count = capture!(CaptureContext::<usize>);
     }
 
     let mut prog = AscentProgram::default();
@@ -208,13 +208,13 @@ fn old_style_count(
 }
 
 #[test]
-fn test_matched_turbofish_empty_clauses() {
+fn test_capture_turbofish_empty_clauses() {
     // Test with no preceding clauses - use let instead of for
     ascent! {
         relation result(usize);
 
         result(count) <--
-            let count = matched!(MatchedContext::<usize>);
+            let count = capture!(CaptureContext::<usize>);
     }
 
     let mut prog = AscentProgram::default();
