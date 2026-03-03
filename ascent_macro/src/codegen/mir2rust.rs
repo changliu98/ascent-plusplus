@@ -620,27 +620,30 @@ pub(crate) fn compile_mir(mir: &AscentMir, is_ascent_run: bool) -> proc_macro2::
 
    // Generate swap_db_fields method only for programs marked with #[swap_db].
    // Swaps shared (non-#[local]) relations with DecompileDB's HashMap.
+   // Uses swap_relation_with_clonable for regular relations (enables parallel
+   // stage cloning) and swap_relation_with for lattice relations (RwLock-based,
+   // not clonable).
    let swap_db_fields_fn = if !is_ascent_run && has_swap_db {
-      let swap_idents = &shared_rel_idents;
-      let swap_types: Vec<Type> = shared_rels.iter()
-         .map(|rel| rel_type(rel, mir))
-         .collect();
-      let swap_name_strs: Vec<String> = shared_rel_idents.iter()
-         .map(|id| id.to_string())
-         .collect();
+      let swap_stmts: Vec<proc_macro2::TokenStream> = shared_rels.iter().zip(shared_rel_idents.iter()).map(|(rel, ident)| {
+         let ty = rel_type(rel, mir);
+         let name_str = ident.to_string();
+         if rel.is_lattice {
+            quote! {
+               db.swap_relation_with::<#ty>(#name_str, &mut self.#ident);
+            }
+         } else {
+            quote! {
+               db.swap_relation_with_clonable::<#ty>(#name_str, &mut self.#ident);
+            }
+         }
+      }).collect();
       quote! {
          /// Swap shared (non-`#[local]`) relation fields between this program and a `DecompileDB`.
          ///
          /// Call once before `run()` to move data in, and once after to move results back.
          /// Relations marked `#[local]` are pass-internal and excluded from the swap.
          pub fn swap_db_fields(&mut self, db: &mut crate::decompile::elevator::DecompileDB) {
-            #(
-               {
-                  let mut __db_val: #swap_types = db.take_relation::<#swap_types>(#swap_name_strs);
-                  std::mem::swap(&mut self.#swap_idents, &mut __db_val);
-                  db.put_relation(#swap_name_strs, __db_val);
-               }
-            )*
+            #(#swap_stmts)*
          }
       }
    } else {
