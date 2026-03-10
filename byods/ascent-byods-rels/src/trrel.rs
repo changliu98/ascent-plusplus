@@ -8,9 +8,16 @@ macro_rules! trrel_rel {
    ($name: ident, ($col0: ty, $col1: ty), $indices: expr, ser, ()) => {
       $crate::fake_vec::FakeVec<($col0, $col1)>
    };
+   // par: same FakeVec wrapper
+   ($name: ident, ($col0: ty, $col1: ty), $indices: expr, par, ()) => {
+      $crate::fake_vec::FakeVec<($col0, $col1)>
+   };
 
    // ternary
    ($name: ident, ($col0: ty, $col1: ty, $col2: ty), $indices: expr, ser, ()) => {
+      $crate::fake_vec::FakeVec<($col0, $col1, $col2)>
+   };
+   ($name: ident, ($col0: ty, $col1: ty, $col2: ty), $indices: expr, par, ()) => {
       $crate::fake_vec::FakeVec<($col0, $col1, $col2)>
    };
 }
@@ -21,6 +28,10 @@ pub use trrel_rel as rel;
 macro_rules! trrel_rel_full_ind {
    ($name: ident, ($col0: ty, $col1: ty), $indices: expr, ser, (), $key: ty, $val: ty) => {
       $crate::trrel_binary_ind::ToTrRelIndFull<$col0>
+   };
+   // par:
+   ($name: ident, ($col0: ty, $col1: ty), $indices: expr, par, (), $key: ty, $val: ty) => {
+      $crate::ctrrel_binary_ind::ToCTrRelIndFull<$col0>
    };
 
    // ternary
@@ -41,6 +52,16 @@ macro_rules! trrel_rel_ind {
    };
    ($name: ident, ($col0: ty, $col1: ty), $indices: expr, ser, (), [], $key: ty, $val: ty) => {
       $crate::trrel_binary_ind::ToTrRelIndNone<$col0>
+   };
+   // par:
+   ($name: ident, ($col0: ty, $col1: ty), $indices: expr, par, (), [0], $key: ty, $val: ty) => {
+      $crate::ctrrel_binary_ind::ToCTrRelInd0<$col0>
+   };
+   ($name: ident, ($col0: ty, $col1: ty), $indices: expr, par, (), [1], $key: ty, $val: ty) => {
+      $crate::ctrrel_binary_ind::ToCTrRelInd1<$col0>
+   };
+   ($name: ident, ($col0: ty, $col1: ty), $indices: expr, par, (), [], $key: ty, $val: ty) => {
+      $crate::ctrrel_binary_ind::ToCTrRelIndNone<$col0>
    };
 
    // ternary
@@ -77,6 +98,10 @@ macro_rules! trrel_rel_ind_common {
    ($name: ident, ($col0: ty, $col1: ty), $indices: expr, ser, ()) => {
       $crate::trrel_binary_ind::TrRelIndCommon<$col0>
    };
+   // par:
+   ($name: ident, ($col0: ty, $col1: ty), $indices: expr, par, ()) => {
+      $crate::ctrrel_binary_ind::CTrRelIndCommon<$col0>
+   };
 
    // ternary
    ($name: ident, ($col0: ty, $col1: ty, $col2: ty), $indices: tt, ser, ()) => {
@@ -84,7 +109,7 @@ macro_rules! trrel_rel_ind_common {
          // reverse_map_1 required:
          {$crate::inds_contain!($indices, [1]) || $crate::inds_contain!($indices, [1, 2])},
          // reverse_map_2 required:
-         {$crate::inds_contain!($indices, [2]) || $crate::inds_contain!($indices, [1, 2])}, 
+         {$crate::inds_contain!($indices, [2]) || $crate::inds_contain!($indices, [1, 2])},
          $col0, $col1>
    };
 }

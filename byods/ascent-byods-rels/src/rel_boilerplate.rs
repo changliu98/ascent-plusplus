@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use ascent::internal::{RelIndexMerge, RelIndexWrite};
+use ascent::internal::{RelIndexMerge, RelIndexWrite, CRelIndexWrite};
 
 pub struct NoopRelIndexWrite<K, V>(PhantomData<(K, V)>);
 
@@ -18,4 +18,11 @@ impl <K, V> RelIndexWrite for NoopRelIndexWrite<K, V> {
    type Value = V;
    #[inline(always)]
    fn index_insert(&mut self, _key: Self::Key, _value: Self::Value) { }
+}
+
+impl <K, V> CRelIndexWrite for NoopRelIndexWrite<K, V> {
+   type Key = K;
+   type Value = V;
+   #[inline(always)]
+   fn index_insert(&self, _key: Self::Key, _value: Self::Value) { }
 }

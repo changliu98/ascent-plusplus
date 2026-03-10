@@ -199,6 +199,48 @@ fn test_trrel1() {
    }
 }
 
+#[cfg(feature = "par")]
+#[test]
+fn test_trrel1_par() {
+   use ascent::ascent_par;
+
+   ascent_par! {
+      struct TrRelParTest;
+
+      #[ds(crate::trrel)]
+      relation tr(u32, u32);
+
+      relation seed(u32, u32);
+
+      relation tr_explicit(u32, u32);
+      tr_explicit(x, z) <-- tr_explicit(x, y), tr_explicit(y, z);
+
+      tr(x, y) <-- seed(x, y);
+      tr_explicit(x, y) <-- seed(x, y);
+
+      relation tr_materialized(u32, u32);
+      tr_materialized(x, y) <-- tr(x, y);
+   }
+
+   let test_cases: Vec<Vec<(u32, u32)>> = vec![
+      vec![(1, 2), (2, 3)],
+      vec![(1, 2)],
+      (4..6).flat_map(|x| (6..9).map(move |y| (x, y))).collect(),
+      (0..5).map(|x| (x, x + 1)).collect(),
+   ];
+
+   for (i, seed_rel) in test_cases.into_iter().enumerate() {
+      let mut prog = TrRelParTest::default();
+      for (x, y) in &seed_rel {
+         prog.seed.push((*x, *y));
+      }
+      prog.run();
+
+      println!("PAR TEST {i}: explicit={}, materialized={}", prog.tr_explicit.len(), prog.tr_materialized.len());
+      assert_eq!(prog.tr_explicit.len(), prog.tr_materialized.len());
+   }
+}
+
 #[test]
 fn test_trrel_reflexive_facts() {
    let test_cases = vec![

@@ -9,7 +9,8 @@ impl<T> Default for FakeVec<T> {
 
 impl<T> FakeVec<T> {
    #[inline(always)]
-   pub fn push(&self, _: T) {
+   pub fn push(&self, _: T) -> usize {
+      0
    }
 
    pub fn len(&self) -> usize {
