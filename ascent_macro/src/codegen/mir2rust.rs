@@ -599,6 +599,33 @@ pub(crate) fn compile_mir(mir: &AscentMir, is_ascent_run: bool) -> proc_macro2::
       .cloned()
       .collect();
 
+   // Collect per-rule (body_relation, head_relation) dependency pairs for DOT visualization.
+   let mut rule_dep_pairs: Vec<(String, String)> = Vec::new();
+   for scc in mir.sccs.iter() {
+      for rule in scc.rules.iter() {
+         let body_rels: Vec<String> = rule.body_items.iter().filter_map(|bi| {
+            match bi {
+               crate::ascent_mir::MirBodyItem::Clause(cl) => Some(cl.rel.relation.name.to_string()),
+               crate::ascent_mir::MirBodyItem::Agg(agg) => Some(agg.rel.relation.name.to_string()),
+               _ => None,
+            }
+         }).collect();
+         let head_rels: Vec<String> = rule.head_clause.iter()
+            .map(|hcl| hcl.rel.name.to_string())
+            .collect();
+         for body_rel in &body_rels {
+            for head_rel in &head_rels {
+               rule_dep_pairs.push((body_rel.clone(), head_rel.clone()));
+            }
+         }
+      }
+   }
+   rule_dep_pairs.sort();
+   rule_dep_pairs.dedup();
+   let rule_dep_tokens: Vec<proc_macro2::TokenStream> = rule_dep_pairs.iter().map(|(body, head)| {
+      quote! { (#body, #head) }
+   }).collect();
+
    let metadata_fns = if !is_ascent_run {
       quote! {
          /// All declared relation names in this program.
@@ -612,6 +639,10 @@ pub(crate) fn compile_mir(mir: &AscentMir, is_ascent_run: bool) -> proc_macro2::
          /// Relations that never appear in rule heads (input-only relations).
          pub fn inputs_only() -> &'static [&'static str] {
             &[#(#input_only_rel_names),*]
+         }
+         /// Per-rule dependency edges: (body_relation, head_relation) pairs.
+         pub fn rule_dependencies() -> &'static [(&'static str, &'static str)] {
+            &[#(#rule_dep_tokens),*]
          }
       }
    } else {
