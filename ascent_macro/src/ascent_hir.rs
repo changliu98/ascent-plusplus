@@ -16,7 +16,6 @@ pub(crate) struct AscentConfig {
    pub include_rule_times: bool,
    pub generate_run_partial: bool,
    pub inter_rule_parallelism: bool,
-   pub track_provenance: bool,
    // pub stream_processing: bool,
    pub default_ds: DsAttributeContents,
 }
@@ -25,7 +24,6 @@ impl AscentConfig {
    const MEASURE_RULE_TIMES_ATTR: &'static str = "measure_rule_times";
    const GENERATE_RUN_TIMEOUT_ATTR: &'static str = "generate_run_timeout";
    const INTER_RULE_PARALLELISM_ATTR: &'static str = "inter_rule_parallelism";
-   const TRACK_PROVENANCE_ATTR: &'static str = "track_provenance";
    // const STREAM_PROCESSING_ATTR: &'static str = "stream_processing";
 
    pub fn new(attrs: Vec<Attribute>, is_parallel: bool) -> syn::Result<AscentConfig> {
@@ -35,13 +33,11 @@ impl AscentConfig {
          .map(|attr| attr.meta.require_path_only()).transpose()?.is_some();
       let inter_rule_parallelism = attrs.iter().find(|attr| attr.meta.path().is_ident(Self::INTER_RULE_PARALLELISM_ATTR))
          .map(|attr| attr.meta.require_path_only()).transpose()?;
-      let track_provenance = attrs.iter().find(|attr| attr.meta.path().is_ident(Self::TRACK_PROVENANCE_ATTR))
-         .map(|attr| attr.meta.require_path_only()).transpose()?.is_some();
       // let stream_processing = attrs.iter().find(|attr| attr.meta.path().is_ident(Self::STREAM_PROCESSING_ATTR))
       //    .map(|attr| attr.meta.require_path_only()).transpose()?.is_some();
 
       let recognized_attrs =
-         [Self::MEASURE_RULE_TIMES_ATTR, Self::GENERATE_RUN_TIMEOUT_ATTR, Self::INTER_RULE_PARALLELISM_ATTR, Self::TRACK_PROVENANCE_ATTR, REL_DS_ATTR];
+         [Self::MEASURE_RULE_TIMES_ATTR, Self::GENERATE_RUN_TIMEOUT_ATTR, Self::INTER_RULE_PARALLELISM_ATTR, REL_DS_ATTR];
       for attr in attrs.iter() {
          if !recognized_attrs.iter().any(|recognized_attr| attr.meta.path().is_ident(recognized_attr)) {
             return Err(Error::new_spanned(attr, 
@@ -57,7 +53,6 @@ impl AscentConfig {
       );
       Ok(AscentConfig {
          inter_rule_parallelism: inter_rule_parallelism.is_some(),
-         track_provenance,
          attrs,
          include_rule_times,
          generate_run_partial,

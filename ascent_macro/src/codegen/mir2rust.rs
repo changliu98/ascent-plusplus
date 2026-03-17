@@ -6,7 +6,7 @@ use proc_macro2::Span;
 use syn::spanned::Spanned;
 use syn::{Ident, Type};
 
-use crate::ascent_mir::{mir_summary, mir_rule_summary, AscentMir};
+use crate::ascent_mir::{mir_summary, AscentMir};
 use crate::codegen::ds::rel_ds_macro_input;
 use crate::codegen::scc::compile_mir_scc;
 use crate::codegen::summary::{compile_relation_sizes_body, compile_scc_times_summary_body};
@@ -497,56 +497,6 @@ pub(crate) fn compile_mir(mir: &AscentMir, is_ascent_run: bool) -> proc_macro2::
    let rule_time_fields = if mir.config.include_rule_times { rule_time_fields } else { vec![] };
    let rule_time_fields_defaults = if mir.config.include_rule_times { rule_time_fields_defaults } else { vec![] };
 
-   // ── Provenance tracking fields ──
-   let provenance_field = if mir.config.track_provenance {
-      if mir.is_parallel {
-         quote! { pub __track_provenance: bool, pub __provenance_log: ::ascent::boxcar::Vec<(&'static str, usize, u16, u16)>, }
-      } else {
-         quote! { pub __track_provenance: bool, pub __provenance_log: Vec<(&'static str, usize, u16, u16)>, }
-      }
-   } else {
-      quote! {}
-   };
-   let provenance_field_default = if mir.config.track_provenance {
-      quote! { __track_provenance: false, __provenance_log: Default::default(), }
-   } else {
-      quote! {}
-   };
-
-   // ── Provenance methods (rule_summary + take_provenance_log) ──
-   let provenance_methods = if mir.config.track_provenance && !is_ascent_run {
-      // Build match arms for rule_summary
-      let mut match_arms = vec![];
-      for (scc_ind, scc) in mir.sccs.iter().enumerate() {
-         let scc_ind_u16 = scc_ind as u16;
-         for (rule_ind, rule) in scc.rules.iter().enumerate() {
-            let rule_ind_u16 = rule_ind as u16;
-            let summary_str = mir_rule_summary(rule);
-            match_arms.push(quote! { (#scc_ind_u16, #rule_ind_u16) => #summary_str, });
-         }
-      }
-      let take_body = if mir.is_parallel {
-         quote! {
-            let old = std::mem::take(&mut self.__provenance_log);
-            old.into_iter().collect()
-         }
-      } else {
-         quote! { std::mem::take(&mut self.__provenance_log) }
-      };
-      quote! {
-         pub fn rule_summary(scc: u16, rule: u16) -> &'static str {
-            match (scc, rule) {
-               #(#match_arms)*
-               _ => "unknown",
-            }
-         }
-         pub fn take_provenance_log(&mut self) -> Vec<(&'static str, usize, u16, u16)> {
-            #take_body
-         }
-      }
-   } else {
-      quote! {}
-   };
 
    let mut rel_codegens = vec![];
    for rel in mir.relations_ir_relations.keys() {
@@ -691,7 +641,6 @@ pub(crate) fn compile_mir(mir: &AscentMir, is_ascent_run: bool) -> proc_macro2::
          scc_times: [std::time::Duration; #sccs_count],
          scc_iters: [usize; #sccs_count],
          #(#rule_time_fields)*
-         #provenance_field
          pub update_time_nanos: std::sync::atomic::AtomicU64,
          pub update_indices_duration: std::time::Duration,
          pub runtime_total: #runtime_struct_name #ty_ty_generics,
@@ -729,7 +678,6 @@ pub(crate) fn compile_mir(mir: &AscentMir, is_ascent_run: bool) -> proc_macro2::
          }
          #metadata_fns
          #swap_db_fields_fn
-         #provenance_methods
       }
 
       impl #impl_impl_generics Default for #runtime_struct_name #impl_ty_generics #impl_where_clause {
@@ -747,7 +695,6 @@ pub(crate) fn compile_mir(mir: &AscentMir, is_ascent_run: bool) -> proc_macro2::
                scc_times: [std::time::Duration::ZERO; #sccs_count],
                scc_iters: [0; #sccs_count],
                #(#rule_time_fields_defaults)*
-               #provenance_field_default
                update_time_nanos: Default::default(),
                update_indices_duration: std::time::Duration::default(),
                runtime_total: Default::default(),
