@@ -26,9 +26,13 @@ fn test_io() {
     assert_eq!(prog.output.len(), 2);
     assert_eq!(prog.input.len(), 0);
 
-    prog.input = vec![(4, 5)].into_iter().collect();
+    // `output` is cleared each run (`yield`) and `input` after each run (`await`),
+    // and the fact `input(1, 2)` re-fires every run. The supplied input must share
+    // its first column with a `foo` fact to join — `(2, 5)` joins `foo(2)`, giving
+    // output {(1, 2), (2, 5)}; `(4, 5)` would join nothing (there is no `foo(4)`).
+    prog.input = vec![(2, 5)].into_iter().collect();
     prog.run();
-    
+
     assert_eq!(prog.output.len(), 2);
     assert_eq!(prog.input.len(), 0);
 }

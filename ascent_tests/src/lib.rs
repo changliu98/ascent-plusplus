@@ -17,6 +17,9 @@ pub mod capture_generic;
 mod capture_turbofish_tests;
 
 mod provenance;
+mod semiring_manual;
+mod semiring_auto;
+mod semiring_correctness;
 mod dynamic_programming;
 mod incremental;
 mod extdb;

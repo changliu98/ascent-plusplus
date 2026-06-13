@@ -1285,6 +1285,86 @@ fn desugar_subquery_runs(rules: &Vec<RuleNode>) -> Vec<RuleNode> {
    res
 }
  
+const REL_SEMIRING_ATTR: &str = "semiring";
+
+/// If `rel` carries a `#[semiring(K)]` attribute, returns the annotation type `K`.
+fn relation_semiring_type(rel: &RelationNode) -> Result<Option<Type>> {
+   let attrs: Vec<_> =
+      rel.attrs.iter().filter(|attr| attr.meta.path().is_ident(REL_SEMIRING_ATTR)).collect();
+   if attrs.len() > 1 {
+      return Err(Error::new(attrs[1].span(), "duplicate `#[semiring(..)]` attribute"));
+   }
+   match attrs.first() {
+      None => Ok(None),
+      Some(attr) => Ok(Some(parse2::<Type>(attr.meta.require_list()?.tokens.clone())?)),
+   }
+}
+
+/// Lowers every `#[semiring(K)]` relation to a `lattice` relation with a hidden
+/// trailing `K` annotation column, returning the map from relation name to `K`.
+/// This reuses the engine's lattice machinery: the `⊕` (alternative derivations)
+/// is the lattice join on the annotation column, computed on duplicate keys.
+fn lower_semiring_relations(relations: &mut [RelationNode]) -> Result<HashMap<String, Type>> {
+   let mut semiring_rels = HashMap::new();
+   for rel in relations.iter_mut() {
+      let Some(k) = relation_semiring_type(rel)? else { continue };
+      if rel.is_lattice {
+         return Err(Error::new(rel.name.span(), "a `lattice` relation cannot also be `#[semiring(..)]`"));
+      }
+      semiring_rels.insert(rel.name.to_string(), k.clone());
+      rel.is_lattice = true;
+      rel.field_types.push(k);
+      rel.attrs.retain(|attr| !attr.meta.path().is_ident(REL_SEMIRING_ATTR));
+   }
+   Ok(semiring_rels)
+}
+
+/// Threads semiring annotations through one rule: binds a fresh annotation
+/// variable on each semiring body atom, and appends `K::one() ⊗ <those vars>` as
+/// the annotation column of each semiring head atom (the `⊗` of one rule firing).
+/// Body atoms are grouped by annotation type, so a program mixing several
+/// semirings threads each independently. A semiring head produced by a rule with
+/// no semiring body atoms (e.g. a base-fact rule) gets the annotation `K::one()`.
+fn rule_thread_semiring(mut rule: RuleNode, semiring_rels: &HashMap<String, Type>) -> RuleNode {
+   // 1. Bind a fresh annotation var on each positive semiring body atom; for
+   //    negation/aggregation the annotation column is matched with a wildcard
+   //    (the annotation is irrelevant to "is the key absent?" / aggregating the
+   //    data columns), which also keeps the atom's arity correct.
+   let mut body_anns: Vec<(Ident, String)> = vec![];
+   for body_item in rule.body_items.iter_mut() {
+      match body_item {
+         BodyItemNode::Clause(bcl) => {
+            if let Some(k) = semiring_rels.get(&bcl.rel.to_string()) {
+               let ann = fresh_ident("__sr_ann", bcl.rel.span());
+               bcl.args.push(BodyClauseArg::Expr(parse_quote!(#ann)));
+               body_anns.push((ann, k.to_token_stream().to_string()));
+            }
+         }
+         BodyItemNode::Negation(neg) if semiring_rels.contains_key(&neg.rel.to_string()) => {
+            neg.args.push(parse_quote!(_));
+         }
+         BodyItemNode::Agg(agg) if semiring_rels.contains_key(&agg.rel.to_string()) => {
+            agg.rel_args.push(parse_quote!(_));
+         }
+         _ => {}
+      }
+   }
+   // 2. Append `K::one() ⊗ <same-K body anns>` to each semiring head atom.
+   for head_item in rule.head_clauses.iter_mut() {
+      if let HeadItemNode::HeadClause(hcl) = head_item {
+         if let Some(k) = semiring_rels.get(&hcl.rel.to_string()) {
+            let k_str = k.to_token_stream().to_string();
+            let mut product: Expr = parse_quote!(<#k as ::ascent::Semiring>::one());
+            for (ann, _) in body_anns.iter().filter(|(_, ann_k)| *ann_k == k_str) {
+               product = parse_quote!(::ascent::Semiring::mul(#product, #ann.clone()));
+            }
+            hcl.args.push(product);
+         }
+      }
+   }
+   rule
+}
+
  pub(crate) fn desugar_ascent_program(mut prog: AscentProgram) -> Result<AscentProgram> {
     let macros = &prog.macros.iter().map(|m| (m.name.clone(), m)).collect::<HashMap<_,_>>(); 
  
@@ -1308,6 +1388,11 @@ fn desugar_subquery_runs(rules: &Vec<RuleNode>) -> Vec<RuleNode> {
        .map(rule_desugar_capture_calls)
        .collect::<Result<Vec<_>>>()?;
 
+    // Lower `#[semiring(K)]` relations to lattice relations with a hidden
+    // trailing annotation column (`⊕` is the lattice join on that column). The
+    // per-rule `⊗` threading happens after disjunction-splitting, below.
+    let semiring_rels = lower_semiring_relations(&mut prog.relations)?;
+
     rules_macro_expanded = desugar_subquery_runs(&rules_macro_expanded);
  
     let relation_from_functions = prog.functions.iter()
@@ -1329,10 +1414,16 @@ fn desugar_subquery_runs(rules: &Vec<RuleNode>) -> Vec<RuleNode> {
     prog.relations = prog.relations.into_iter()
        .flat_map(desugar_relation_with_id)
        .collect_vec();
-    let rule_desugared_disjunction = rules_macro_expanded.into_iter()
+    let mut rule_desugared_disjunction = rules_macro_expanded.into_iter()
        .flat_map(rule_desugar_disjunction_nodes)
        .collect_vec();
-    prog.rules = 
+    // Thread semiring annotations now that disjunctions are flat rules: bind the
+    // `⊗` of body-atom annotations onto each semiring head atom.
+    if !semiring_rels.is_empty() {
+       rule_desugared_disjunction =
+          rule_desugared_disjunction.into_iter().map(|r| rule_thread_semiring(r, &semiring_rels)).collect_vec();
+    }
+    prog.rules =
        rule_desugared_disjunction.into_iter()
        .map(rule_desugar_function_impl_decl_clause)
        .map(rule_desugar_function_return)

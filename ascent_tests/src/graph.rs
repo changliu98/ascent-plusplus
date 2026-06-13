@@ -69,7 +69,7 @@ ascent! {
     relation do_lift(u32);
     lattice lift(u32, Set<Ptr<GraphNode>>);
 
-    start_node(x) <-- do_lift(x);
+    do_lift(x) <-- start_node(x);
 
     do_lift(y) <-- do_lift(x), edge(x, y);
     lift(x, Set::singleton(new_node)) <--
